@@ -411,10 +411,11 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         //   form_uid: uid.toString(),
         //   to_uid: ctx.bossData.data.bossId.toString(),
         //   to_name: ctx.bossData.data.encryptBossId, // encryptUserId
+        //   friend_source: ctx.bossData.data.bossSource,
         //   content: msg,
         // })
 
-        // buf.send()
+        // await buf.send()
 
         ctx.helper.sendMessage?.(data.jobData.key, msg)
       }
