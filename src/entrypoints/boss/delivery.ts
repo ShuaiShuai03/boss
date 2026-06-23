@@ -2,6 +2,7 @@ import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
 
 import { BossHelperCtx } from '.'
+import { sendPublishReq } from './requests'
 import { BossZpJobItemData, BossZpDetailData } from './types'
 
 export type BoosJobData = {
@@ -69,6 +70,7 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
           ...job.jobData.boss,
           isOnline: detail.bossInfo.bossOnline,
           isCertificated: detail.bossInfo.certificated,
+          isFriend: detail.relationInfo.beFriend,
         },
         brand: {
           ...job.jobData.brand,
@@ -92,12 +94,16 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   tasks.amap({ deps: ['岗位详情获取'] }), // 高德地图
   tasks.aiFiltering({ deps: ['岗位详情获取'] }), // AI过滤
 
-  defineTaskHandler('岗位投递', () => async (_, { rawData }) => {
-    // await sendPublishReq({
-    //   securityId: rawData.jobitem.securityId,
-    //   encryptJobId: rawData.jobitem.encryptJobId,
-    // })
+  defineTaskHandler('岗位投递', (ctx) => async (_, { rawData }) => {
+    if (!ctx.helper.conf.formData.autoApplyEnabled.value) {
+      return taskResult.skip('自动投递未启用')
+    }
+
     logger.info('发送投递请求', {
+      securityId: rawData.jobitem.securityId,
+      encryptJobId: rawData.jobitem.encryptJobId,
+    })
+    await sendPublishReq({
       securityId: rawData.jobitem.securityId,
       encryptJobId: rawData.jobitem.encryptJobId,
     })

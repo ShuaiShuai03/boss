@@ -3,14 +3,18 @@ import { ref } from 'vue'
 
 import { defineUnlistedScript } from '#imports'
 import { appearanceConf } from '@/composables/conf'
+import { GreetError } from '@/composables/useApplying/deliverError'
 import { createLazyObject, WorkflowData } from '@/composables/useApplying/type'
 import { HelperContext, JobData } from '@/composables/useHelper'
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
+import { initGeekChatBridge } from '@/composables/useWebSocket/chatCore'
+import { Message } from '@/composables/useWebSocket/protobuf'
 import { run } from '@/index'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
 import { BoosJobData, bossWorkflow } from './delivery'
+import { requestBossData } from './requests'
 import { BossZpDetailData, BossZpJobItemData } from './types'
 
 function removeAd() {
@@ -116,6 +120,26 @@ function convertBossZpJobItemToJobData(item: BossZpJobItemData): JobData {
   }
 }
 
+function normalizeMessageContent(msg: UserContent): string {
+  if (typeof msg === 'string') {
+    return msg.trim()
+  }
+
+  if (Array.isArray(msg)) {
+    return msg
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (typeof item?.text === 'string') return item.text
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim()
+  }
+
+  return String(msg ?? '').trim()
+}
+
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}> {
   _page = ref({ page: 1, pageSize: 15 })
   _pageHasMore = ref(true)
@@ -196,6 +220,14 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async start() {
+    if (!this.conf.formData.autoApplyEnabled.value) {
+      await this.notification('自动投递未启用', {
+        toast: {
+          color: 'warning',
+        },
+      })
+      return
+    }
     if (!this.workflow) {
       this.workflow = await bossWorkflow(this)
     }
@@ -203,7 +235,40 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async sendMessage(jobKey: string, msg: UserContent) {
-    logger.info('发送消息', { jobKey, msg })
+    const data = this.jobMaps.get(jobKey)
+    if (!data) {
+      throw new GreetError('未找到岗位上下文')
+    }
+
+    const content = normalizeMessageContent(msg)
+    if (!content) {
+      throw new GreetError('打招呼内容为空')
+    }
+
+    const bossData = await requestBossData(
+      {
+        encryptUserId:
+          data.rawData.detail.jobInfo.encryptUserId || data.rawData.jobitem.encryptBossId,
+        securityId: data.rawData.jobitem.securityId,
+      },
+      {
+        bossSrc: data.rawData.detail.bossInfo.bossSource,
+      },
+    )
+
+    data.state.bossData = bossData
+    data.state.message = content
+
+    const message = new Message({
+      form_uid: String(window._PAGE.uid ?? window._PAGE.userId ?? this.uid),
+      to_uid: String(bossData.data.bossId),
+      to_name: bossData.data.encryptBossId,
+      friend_source: bossData.data.bossSource,
+      content,
+    })
+
+    await message.send()
+    logger.info('消息发送成功', { jobKey, bossId: bossData.data.encryptBossId })
   }
 
   async onMount(path?: string) {
@@ -339,6 +404,8 @@ export default defineUnlistedScript(async () => {
   //     "dark",
   //     GM_getValue("theme-dark", false)
   //   );
+
+  initGeekChatBridge()
 
   const bossHelpCtx = await BossHelperCtx.new()
 

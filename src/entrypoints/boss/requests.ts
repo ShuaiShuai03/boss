@@ -9,12 +9,48 @@ import {
 } from '@/composables/useApplying/deliverError'
 import { logger } from '@/utils/logger'
 
-import { BossZpBossData, BossZpDetailData } from './types'
+import type { BossZpBossData, BossZpDetailData } from './types'
 
 // const { userInfo } = useStore()
 const toast = useToast()
 export const sameCompanyKey = 'local:sameCompany'
 export const sameHrKey = 'local:sameHr'
+
+export type PublishResponse = {
+  code: number
+  message: string
+  zpData?: any
+}
+
+export type RequestBossDataOptions = {
+  bossSrc?: number | string
+  errorMsg?: string
+  retries?: number
+  retryDelayMs?: number
+}
+
+function normalizePublishResponse(res: any): PublishResponse {
+  const data = res?.data ?? res ?? {}
+  return {
+    code: Number(data.code ?? -1),
+    message: String(data.message ?? res?.message ?? ''),
+    zpData: data.zpData,
+  }
+}
+
+function normalizeRequestBossDataOptions(
+  options: RequestBossDataOptions | string | undefined,
+  retries: number,
+): RequestBossDataOptions {
+  if (typeof options === 'string') {
+    return { errorMsg: options, retries }
+  }
+  return { retries, retryDelayMs: 2000, ...options }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
 
 export async function requestDetail(params: { securityId: string; lid: string }): Promise<{
   code: number
@@ -45,7 +81,7 @@ export async function sendPublishReq(
   errorMsg?: string,
   retries = 3,
   _params = {},
-) {
+): Promise<PublishResponse> {
   if (retries === 0) {
     throw new PublishError(errorMsg ?? '重试多次失败')
   }
@@ -65,22 +101,23 @@ export async function sendPublishReq(
     throw new PublishError('没有获取到token')
   }
   try {
-    const res = await fetch(url, {
+    const rawRes = await fetch(url, {
       method: 'POST',
       headers: { Zp_token: token },
     }).then((r) => r.json())
+    const res = normalizePublishResponse(rawRes)
 
-    res.data.code !== 0 && logger.error(`投递失败`, res)
+    res.code !== 0 && logger.error(`投递失败`, rawRes)
 
-    if (res.data.code === 1) {
+    if (res.code === 1) {
       const content = String(
-        res.data?.zpData?.bizData?.chatRemindDialog?.content || res.data.message || '未知错误',
+        res.zpData?.bizData?.chatRemindDialog?.content || res.message || '未知错误',
       )
       // 命中限额弹窗 → 立刻发送确认请求
       if (content.includes('您今天已与120位BOSS沟通')) {
         try {
           const url = new URL('https://www.zhipin.com/wapi/zpCommon/actionLog/geek/chatremind.json')
-          url.searchParams.set('ba', res.data.zpData.bizData.chatRemindDialog.ba)
+          url.searchParams.set('ba', res.zpData.bizData.chatRemindDialog.ba)
           url.searchParams.set('action', 'addf-limit-popup-c')
           await fetch(url, {
             method: 'POST',
@@ -99,10 +136,10 @@ export async function sendPublishReq(
       }
 
       throw new PublishError(content)
-    } else if (res.data.code !== 0) {
-      throw new PublishError(`未知错误状态:${res.data.message}`)
+    } else if (res.code !== 0) {
+      throw new PublishError(`未知错误状态:${res.message}`)
     }
-    return res.data
+    return res
   } catch (e: any) {
     if (e instanceof BossHelperError) {
       throw e
@@ -113,11 +150,13 @@ export async function sendPublishReq(
 
 export async function requestBossData(
   job: { encryptUserId: string; securityId: string },
-  errorMsg?: string,
+  options?: RequestBossDataOptions | string,
   retries = 3,
 ): Promise<BossZpBossData> {
-  if (retries === 0) {
-    throw new GreetError(errorMsg ?? '重试多次失败')
+  const opt = normalizeRequestBossDataOptions(options, retries)
+  const retryCount = opt.retries ?? 3
+  if (retryCount === 0) {
+    throw new GreetError(opt.errorMsg ?? '重试多次失败')
   }
   const url = 'https://www.zhipin.com/wapi/zpchat/geek/getBossData'
   // userInfo.value?.token 不相等！
@@ -133,7 +172,7 @@ export async function requestBossData(
     const body = new FormData()
     body.append('bossId', job.encryptUserId)
     body.append('securityId', job.securityId)
-    body.append('bossSrc', '0')
+    body.append('bossSrc', String(opt.bossSrc ?? 0))
 
     const res: {
       code: number
@@ -147,7 +186,11 @@ export async function requestBossData(
 
     if (res.code !== 0) {
       if (res.message === '非好友关系') {
-        return await requestBossData(job, '非好友关系', retries - 1)
+        const nextRetries = retryCount - 1
+        if (nextRetries > 0) {
+          await sleep(opt.retryDelayMs ?? 2000)
+        }
+        return await requestBossData(job, { ...opt, errorMsg: '非好友关系', retries: nextRetries })
       }
       throw new GreetError(`状态错误:${res.message}`)
     }
@@ -156,6 +199,6 @@ export async function requestBossData(
     if (e instanceof GreetError) {
       throw e
     }
-    return requestBossData(job, e?.message as string, retries - 1)
+    return requestBossData(job, { ...opt, errorMsg: e?.message as string, retries: retryCount - 1 })
   }
 }

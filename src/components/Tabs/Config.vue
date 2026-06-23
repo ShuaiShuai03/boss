@@ -4,9 +4,9 @@ import { computed } from 'vue'
 
 import { ref } from '#imports'
 import Alert from '@/components/Alert.vue'
-import formItem from '@/components/Form/FormItem.vue'
-import formSelect from '@/components/Form/FormSelect.vue'
-import SalaryRangeComponent from '@/components/Form/SalaryRange.vue'
+import formItem from '@/components/form/FormItem.vue'
+import formSelect from '@/components/form/FormSelect.vue'
+import SalaryRangeComponent from '@/components/form/SalaryRange.vue'
 import { formInfoData, useConf } from '@/composables/conf'
 import { getCacheManager } from '@/composables/useApplying'
 import { useHelper } from '@/composables/useHelper'
@@ -493,6 +493,14 @@ function gotoAmapDevSetting() {
           v-bind="formInfoData.useCache"
           v-model="conf.formData.useCache.value"
         />
+        <UCheckbox
+          v-bind="formInfoData.autoApplyEnabled"
+          v-model="conf.formData.autoApplyEnabled.value"
+        />
+        <UCheckbox
+          v-bind="formInfoData.autoGreetingEnabled"
+          v-model="conf.formData.autoGreetingEnabled.value"
+        />
         <UButton
           v-if="conf.formData.useCache.value"
           color="warning"
@@ -500,13 +508,37 @@ function gotoAmapDevSetting() {
         >
           清空缓存
         </UButton>
-        <UFormField v-if="conf.configLevel.intermediate" :label="formInfoData.deliveryLimit.label">
+        <UFormField v-if="conf.configLevel.intermediate" :label="formInfoData.dailyLimit.label">
           <UInputNumber
-            v-bind="formInfoData.deliveryLimit"
-            v-model="conf.formData.deliveryLimit.value"
+            v-bind="formInfoData.dailyLimit"
+            v-model="conf.formData.dailyLimit.value"
             :min="1"
             :max="155"
             :step="10"
+          />
+        </UFormField>
+        <UFormField
+          v-if="conf.configLevel.intermediate"
+          :label="formInfoData.actionDelayMs.label"
+          :data-help="formInfoData.actionDelayMs['data-help']"
+        >
+          <UInputNumber
+            v-model="conf.formData.actionDelayMs.value"
+            :min="1000"
+            :max="120000"
+            :step="1000"
+          />
+        </UFormField>
+        <UFormField
+          v-if="conf.configLevel.intermediate"
+          :label="formInfoData.maxConsecutiveFailures.label"
+          :data-help="formInfoData.maxConsecutiveFailures['data-help']"
+        >
+          <UInputNumber
+            v-model="conf.formData.maxConsecutiveFailures.value"
+            :min="1"
+            :max="20"
+            :step="1"
           />
         </UFormField>
       </div>

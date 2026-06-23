@@ -138,6 +138,13 @@ export const useConf = () => {
         color: 'error',
       })
     }
+    from.dailyLimit ??= {
+      value: from.deliveryLimit?.value ?? defaultFormData.dailyLimit.value,
+    }
+    from.autoApplyEnabled ??= defaultFormData.autoApplyEnabled
+    from.autoGreetingEnabled ??= defaultFormData.autoGreetingEnabled
+    from.actionDelayMs ??= defaultFormData.actionDelayMs
+    from.maxConsecutiveFailures ??= defaultFormData.maxConsecutiveFailures
     return from
   }
 
@@ -222,6 +229,11 @@ export const useConf = () => {
       formData,
       [
         'deliveryLimit',
+        'autoApplyEnabled',
+        'autoGreetingEnabled',
+        'dailyLimit',
+        'actionDelayMs',
+        'maxConsecutiveFailures',
         'activityFilter',
         'friendStatus',
         'sameCompanyFilter',

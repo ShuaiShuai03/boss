@@ -55,6 +55,26 @@ export const formInfoData: FormInfoData = {
     'data-help':
       '投递工作的公司规模, 推荐使用boss自带选项进行筛选。严格宽松定义在薪资高级配置中有写',
   },
+  autoApplyEnabled: {
+    label: '自动投递',
+    'data-help': '开启后点击开始会自动筛选并投递，不再逐条确认。',
+  },
+  autoGreetingEnabled: {
+    label: '自动招呼',
+    'data-help': '开启后投递成功会继续发送已启用的自定义招呼语或AI招呼语。',
+  },
+  dailyLimit: {
+    label: '每日投递上限',
+    'data-help': '达到上限后会自动暂停。默认120，建议低于Boss当日硬限制。',
+  },
+  actionDelayMs: {
+    label: '动作间隔(ms)',
+    'data-help': '每个岗位处理完成后的等待时间，单位毫秒，用于降低风控风险。',
+  },
+  maxConsecutiveFailures: {
+    label: '连续失败熔断',
+    'data-help': '连续错误达到该次数后自动暂停。只统计错误，不统计规则过滤。',
+  },
   customGreeting: {
     label: '自定义招呼语',
     'data-help':
@@ -217,6 +237,21 @@ export const defaultFormData: FormData = {
   companySizeRange: {
     value: [500, 2000, true],
     enable: false,
+  },
+  autoApplyEnabled: {
+    value: true,
+  },
+  autoGreetingEnabled: {
+    value: true,
+  },
+  dailyLimit: {
+    value: 120,
+  },
+  actionDelayMs: {
+    value: 5000,
+  },
+  maxConsecutiveFailures: {
+    value: 3,
   },
   customGreeting: {
     value: '',

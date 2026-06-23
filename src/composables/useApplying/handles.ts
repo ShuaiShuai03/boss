@@ -352,8 +352,18 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         throw new HelperConfigError('aiFiltering.model', 'AI筛选模型未配置')
       }
       return async (ctx, data) => {
-        const content = await ctx.helper.chatModel.chat('filtering', data).then((r) => r.text)
-        const { message, rating } = parseFiltering(content)
+        const result = await ctx.helper.chatModel.chat('filtering', data)
+        const content = result.text.trim()
+        ;(data.state as any).aiFilteringQ = result.prompt
+        ;(data.state as any).aiFilteringR = result.reasoning_content
+        ;(data.state as any).aiFilteringAtext = content
+        if (!content) {
+          return taskResult.skip('AI筛选低置信度跳过: 模型无返回')
+        }
+        const { message, rating, res } = parseFiltering(content)
+        if (!res) {
+          return taskResult.skip('AI筛选低置信度跳过: 无法解析模型输出')
+        }
         if (rating < (ctx.helper.conf.formData.aiFiltering.score ?? 10)) {
           return taskResult.skip(message)
         }
@@ -390,8 +400,11 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
   })
 
   customGreeting = defineTaskHandler<C, T, S>(
-    '打招呼',
+    '自定义招呼',
     (ctx) => {
+      if (!ctx.helper.conf.formData.autoGreetingEnabled.value) {
+        return
+      }
       if (!ctx.helper.conf.formData.customGreeting.enable) {
         return
       }
@@ -417,15 +430,23 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
 
         // await buf.send()
 
-        ctx.helper.sendMessage?.(data.jobData.key, msg)
+        ;(data.state as any).message = msg
+        await ctx.helper.sendMessage(data.jobData.key, msg)
+        return {
+          status: 'success',
+          msg: '自定义招呼已发送',
+        }
       }
     },
     { label: '自定义招呼语' },
   )
 
   aiGreeting = defineTaskHandler<C, T, S>(
-    '打招呼',
+    'AI招呼',
     (ctx) => {
+      if (!ctx.helper.conf.formData.autoGreetingEnabled.value) {
+        return
+      }
       if (!ctx.helper.conf.formData.aiGreeting.enable) {
         return
       }
@@ -433,8 +454,19 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         throw new HelperConfigError('aiGreeting.model', 'AI招呼模型未配置')
       }
       return async (ctx, data) => {
-        const msg = await ctx.helper.chatModel.chat('greetings', data).then((r) => r.text)
-        ctx.helper.sendMessage?.(data.jobData.key, msg)
+        const result = await ctx.helper.chatModel.chat('greetings', data)
+        const msg = result.text.trim()
+        ;(data.state as any).aiGreetingQ = result.prompt
+        ;(data.state as any).aiGreetingR = result.reasoning_content
+        ;(data.state as any).aiGreetingA = msg
+        if (!msg) {
+          return taskResult.skip('AI招呼语为空')
+        }
+        await ctx.helper.sendMessage(data.jobData.key, msg)
+        return {
+          status: 'success',
+          msg: 'AI招呼已发送',
+        }
         // const chatInput = chatInputInit(model)
         // try {
         //   if (data.bossData == null) {

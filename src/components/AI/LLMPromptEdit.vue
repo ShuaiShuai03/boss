@@ -3,16 +3,13 @@ import { h, reactive, ref } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
-import { useModel } from '@/composables/useModel'
-
-//TODO import { parseFiltering } from '@/entrypoints/boss/requests'
+import { parseFiltering } from '@/composables/useApplying/utils'
 import { JobData, useHelper } from '@/composables/useHelper'
+import { useModel } from '@/composables/useModel'
 import type { FormInfoAi, Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
 
 import Alert from '../Alert.vue'
-
-let parseFiltering = () => {}
 
 const props = defineProps<{
   data: 'aiGreeting' | 'aiFiltering' | 'aiReply'
@@ -114,37 +111,52 @@ async function testJob() {
       title: '请在上级弹窗右上角选择模型',
       color: 'warning',
     })
+    testJobLoading.value = false
+    testJobStop.value = true
     return
   }
   try {
-    // const gpt = model.getModel(md!, message.value)
+    const agentName =
+      props.data === 'aiFiltering'
+        ? 'filtering'
+        : props.data === 'aiGreeting'
+          ? 'greetings'
+          : 'assistant'
+    const form = {
+      ...conf.formData[props.data],
+      enable: true,
+      model: currentModel.value,
+      prompt: jsonClone(message.value),
+    }
+    if (!helper.chatModel.createAgent(form, agentName, { json: props.data === 'aiFiltering' })) {
+      toast.add({
+        title: '模型配置不可用',
+        color: 'warning',
+      })
+      return
+    }
     const handle = async (item: TestData) => {
       if (testJobStop.value) {
         return
       }
       try {
-        // item.loading = true
-        // let { content, prompt, reasoning_content } = await gpt.doStream(
-        //   {
-        //     data: {
-        //       data: item.job,
-        //       card: item.job.card!,
-        //     },
-        //     test: true,
-        //     json: props.data === 'aiFiltering',
-        //   },
-        //   props.data,
-        // )
-        // if (props.data === 'aiFiltering' && content) {
-        //   const { message } = parseFiltering(content)
-        //   content = message ?? content
-        // }
-        // testDataContent[item.key].push({
-        //   time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-        //   prompt,
-        //   reasoning_content,
-        //   content,
-        // })
+        item.loading = true
+        const data = helper.jobMaps.get(item.key) ?? {
+          jobData: item.job,
+          rawData: {} as any,
+          state: {},
+        }
+        const result = await helper.chatModel.chat(agentName, data)
+        let content = result.text.trim()
+        if (props.data === 'aiFiltering' && content) {
+          content = parseFiltering(content).message || content
+        }
+        testDataContent[item.key].push({
+          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          prompt: result.prompt,
+          reasoning_content: result.reasoning_content,
+          content,
+        })
       } catch (err: any) {
         logger.error(err)
         toast.add({
@@ -403,4 +415,3 @@ onMounted(() => {
     </template>
   </UModal>
 </template>
-x

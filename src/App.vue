@@ -110,6 +110,9 @@ const updateOverlay = () => {
 const { pause, resume } = useRafFn(updateOverlay, { immediate: false })
 
 const chatOpen = ref(appearanceConf.value.defaultShowChatBox)
+const dailyLimit = computed(
+  () => conf.formData.dailyLimit.value || conf.formData.deliveryLimit.value,
+)
 
 onMounted(() => {
   root = (container.value?.getRootNode() as ShadowRoot) ?? document
@@ -191,7 +194,7 @@ function onPointerMove(ev: PointerEvent) {
               </UButton>
             </UChip>
             <span v-if="todayData.total > 0" style="margin-right: 15px">
-              今日投递: {{ todayData.success }}/{{ conf.formData.deliveryLimit.value }}
+              今日投递: {{ todayData.success }}/{{ dailyLimit }}
             </span>
             <span v-if="helper.workflow && helper.workflow.total.value > 0">
               当前页面处理: {{ helper.workflow.current.value + 1 }}/{{

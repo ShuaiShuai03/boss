@@ -20,6 +20,11 @@ export interface FormData {
   jobAddress: FormDataSelect
   salaryRange: FormSalaryRangeInput
   companySizeRange: FormDataRangeInput
+  autoApplyEnabled: FormDataCheckbox
+  autoGreetingEnabled: FormDataCheckbox
+  dailyLimit: FormDataInputNumber
+  actionDelayMs: FormDataInputNumber
+  maxConsecutiveFailures: FormDataInputNumber
   customGreeting: FormDataInput
   deliveryLimit: FormDataInputNumber
   greetingVariable: FormDataCheckbox

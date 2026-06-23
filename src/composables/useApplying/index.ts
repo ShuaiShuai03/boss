@@ -270,6 +270,9 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
               helper.statistics.todayData.tasks[t.id][res.status] ??= 0
               helper.statistics.todayData.tasks[t.id][res.status] += 1
             }
+            if (t.id === '岗位投递' && res.status === 'success') {
+              helper.statistics.todayData.success += 1
+            }
           }
         }
       }
@@ -277,6 +280,29 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         helper.jobResultMaps.set(data.jobData.key, {
           status: 'success',
           msg: '投递成功',
+        })
+      }
+      const finalResult = helper.jobResultMaps.get(data.jobData.key)
+      if (finalResult) {
+        helper.logs.value.push({
+          job: data.jobData,
+          title: data.jobData.jobName,
+          state:
+            finalResult.status === 'error'
+              ? 'danger'
+              : finalResult.status === 'warn'
+                ? 'warning'
+                : finalResult.status === 'success'
+                  ? 'success'
+                  : 'info',
+          state_name: finalResult.msg ?? finalResult.reason ?? '任务结束',
+          message: finalResult.reason ?? finalResult.msg,
+          data: {
+            jobData: data.jobData,
+            ...data.state,
+            state: finalResult.status,
+            err: finalResult.status === 'error' ? finalResult.reason : undefined,
+          },
         })
       }
     } catch (e) {
@@ -289,9 +315,16 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     await rebuild()
 
     let stepMsg = ''
+    let consecutiveFailures = 0
     errorMessage.value = null
     status.value = 'running'
     const isStop = () => status.value === 'stop'
+    const dailyLimit = () =>
+      helper.conf.formData.dailyLimit.value || helper.conf.formData.deliveryLimit.value
+    const actionDelaySeconds = () =>
+      Math.max(1, Math.ceil((helper.conf.formData.actionDelayMs.value || 0) / 1000))
+    const maxConsecutiveFailures = () =>
+      Math.max(1, helper.conf.formData.maxConsecutiveFailures.value || 1)
 
     try {
       while (status.value === 'running') {
@@ -317,19 +350,38 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         for (const [index, jobData] of helper.jobList.value.entries()) {
           current.value = index + 1
           if (isStop()) break
-          const status = helper.jobResultMaps.get(jobData.key)?.status
-          if (status === 'success' || status === 'warn') {
+          if (helper.statistics.todayData.success >= dailyLimit()) {
+            status.value = 'stop'
+            stepMsg = `已达到每日投递上限: ${dailyLimit()}`
+            break
+          }
+          const jobStatus = helper.jobResultMaps.get(jobData.key)?.status
+          if (jobStatus === 'success' || jobStatus === 'warn') {
             continue
           }
+          helper.statistics.todayData.total += 1
+          const state = stateMaps.value.get(jobData.key) || {}
+          stateMaps.value.set(jobData.key, state)
           const data = {
             jobData,
             rawData: rawDataMap.get(jobData.key)!,
-            state: stateMaps.value.get(jobData.key) || {},
+            state,
           }
           helper.jobMaps.set(jobData.key, data)
           helper.currentJob.value = jobData.key
           await execute(data)
-          await delay(helper.conf.formData.delay.deliveryInterval, isStop)
+          const result = helper.jobResultMaps.get(jobData.key)
+          if (result?.status === 'error') {
+            consecutiveFailures += 1
+            if (consecutiveFailures >= maxConsecutiveFailures()) {
+              status.value = 'stop'
+              stepMsg = `连续失败 ${consecutiveFailures} 次，已自动暂停`
+              break
+            }
+          } else {
+            consecutiveFailures = 0
+          }
+          await delay(actionDelaySeconds(), isStop)
         }
         if (isStop()) break
         const hasMore = await helper.loadMoreJob(
@@ -346,8 +398,10 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       stepMsg = `未知错误: ${e}`
     } finally {
       if (!stepMsg) {
-        stepMsg = '投递结束'
-        status.value = 'pending'
+        stepMsg = status.value === 'stop' ? '已暂停' : '投递结束'
+        if (status.value !== 'stop') {
+          status.value = 'pending'
+        }
       } else if (status.value !== 'stop') {
         status.value = 'error'
         errorMessage.value = stepMsg

@@ -1,5 +1,5 @@
 interface Window {
-  socket: WebSocket
+  socket?: WebSocket
   ChatWebsocket?: {
     send: (e: { toArrayBuffer: () => ArrayBuffer }) => void
   }

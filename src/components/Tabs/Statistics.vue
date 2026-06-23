@@ -52,7 +52,7 @@ const cycle = computed(() => {
 })
 
 const deliveryLimit = computed(() => {
-  return conf.formData.deliveryLimit.value
+  return conf.formData.dailyLimit.value || conf.formData.deliveryLimit.value
 })
 
 onMounted(() => {

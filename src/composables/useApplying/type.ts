@@ -42,6 +42,7 @@ export interface WorkflowState {
     geocode?: Awaited<ReturnType<typeof amapGeocode>>
     distance?: Awaited<ReturnType<typeof amapDistance>>
   }
+  [key: string]: any
 }
 
 export interface WorkflowData<T, S> {

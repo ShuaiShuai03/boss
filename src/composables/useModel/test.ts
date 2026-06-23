@@ -28,6 +28,35 @@ export interface Message extends ChatMessageProps {
   messages?: ModelMessage[]
 }
 
+export interface ChatModelResult {
+  text: string
+  prompt: string
+  reasoning_content: string | null
+}
+
+function renderMessages(model: FormDataAi, data: WorkflowData<any, any>): ModelMessage[] {
+  const messages =
+    typeof model.prompt === 'string'
+      ? [{ role: 'user' as const, content: model.prompt }]
+      : model.prompt
+
+  return messages.map((message) => ({
+    ...message,
+    content:
+      typeof message.content === 'string' ? renderTemplate(message.content, data) : message.content,
+  }))
+}
+
+function formatPrompt(messages: ModelMessage[]) {
+  return messages
+    .map((message) => {
+      const content =
+        typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      return `${message.role}:\n${content}`
+    })
+    .join('\n\n')
+}
+
 export class VueChatState<UI_MESSAGE extends UIMessage> implements ChatState<UI_MESSAGE> {
   messagesRef: ShallowRef<UI_MESSAGE[]>
   statusRef = shallowRef<ChatStatus>('ready')
@@ -130,7 +159,7 @@ export class ChatModel {
     return true
   }
 
-  async chat(agentName: MessageRole, data: WorkflowData<any, any>) {
+  async chat(agentName: MessageRole, data: WorkflowData<any, any>): Promise<ChatModelResult> {
     const _agent = this.agents.get(agentName)
     if (!_agent) {
       throw new Error(`Agent ${agentName} not found`)
@@ -143,18 +172,8 @@ export class ChatModel {
     const [agent, modelConf, model] = _agent
 
     const timeout = modelConf.data?.other?.timeout ?? 60000
-    let messages: ModelMessage[]
-
-    if (typeof model.prompt === 'string') {
-      messages = [{ role: 'user', content: model.prompt }]
-    } else {
-      messages = model.prompt
-    }
-    for (const i in messages) {
-      if (typeof messages[i].content === 'string') {
-        messages[i].content = renderTemplate(messages[i].content, data)
-      }
-    }
+    const messages = renderMessages(model, data)
+    const prompt = formatPrompt(messages)
     if (!this.states.has(data.jobData.key)) {
       const state = new VueChatState<Message>()
       state.pushMessage({
@@ -225,7 +244,7 @@ ${data.jobData.jobDescription}`,
       timeout,
       messages,
       onStepFinish: (message) => {
-        if (index > 0) {
+        if (index >= 0) {
           state.replaceMessage(index, {
             ...msg,
             parts: message.content as typeof msg.parts,
@@ -242,6 +261,8 @@ ${data.jobData.jobDescription}`,
     state.pushMessage(msg)
     index = state.messages.findIndex((m) => m.id === msg.id)
 
+    let text = ''
+    let reasoning = ''
     try {
       for await (const chunk of stream.toUIMessageStream({
         originalMessages: state.messages,
@@ -254,6 +275,7 @@ ${data.jobData.jobDescription}`,
         const lastPart = msg.parts[msg.parts.length - 1]
         switch (chunk.type) {
           case 'reasoning-delta':
+            reasoning += chunk.delta
             part = {
               type: 'reasoning',
               text: chunk.delta,
@@ -266,6 +288,7 @@ ${data.jobData.jobDescription}`,
             }
             break
           case 'text-delta':
+            text += chunk.delta
             part = {
               type: 'text',
               text: chunk.delta,
@@ -289,6 +312,7 @@ ${data.jobData.jobDescription}`,
       state.status = 'error'
       state.error = e as Error
       logger.error('Error during chat streaming', e)
+      throw e
     }
 
     // for await (const chunk of readUIMessageStream({ // BUG: 无法正确处理消息
@@ -300,6 +324,16 @@ ${data.jobData.jobDescription}`,
     // })) {
     //   msgs.replaceMessage(index, chunk)
     // }
-    return stream
+    if (!text) {
+      try {
+        text = await stream.text
+      } catch {}
+    }
+
+    return {
+      text,
+      prompt,
+      reasoning_content: reasoning || null,
+    }
   }
 }
