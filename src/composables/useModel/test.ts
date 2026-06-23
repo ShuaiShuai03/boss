@@ -1,4 +1,3 @@
-import { createOpenAI, OpenAIProvider } from '@ai-sdk/openai'
 import { ChatMessageProps } from '@nuxt/ui'
 import {
   ChatState,
@@ -17,10 +16,11 @@ import { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 
 import { ModelConf } from '.'
+import { openai } from './openai'
 import { WorkflowData } from '../useApplying/type'
 import { HelperContext } from '../useHelper'
 
-const role = ['system', 'user', 'assistant', 'boss', 'jd', 'filtering', 'greetings'] as const
+const role = ['system', 'user', 'assistant', 'boss', 'jd', 'filtering', 'greetings', 'reply'] as const
 type MessageRole = (typeof role)[number]
 
 export interface Message extends ChatMessageProps {
@@ -114,7 +114,6 @@ export class ChatModel {
 
   jobs = ref<string[]>([])
 
-  providers: Map<string, OpenAIProvider> = new Map()
   agents: Map<MessageRole, [ToolLoopAgent, ModelConf, FormDataAi]> = new Map()
   generateId: { [key in MessageRole]: () => string }
 
@@ -139,21 +138,17 @@ export class ChatModel {
     },
   ): boolean {
     const conf = this.ctx.models.modelData.value.find((m) => m.key === model.model)
-    if (!conf || !model.model) {
+    if (!conf?.data || !model.model) {
       return false
     }
-    let provider = this.providers.get(model.model)
-    if (!provider) {
-      provider = createOpenAI({
-        baseURL: conf.data?.base_url,
-        apiKey: conf.data?.api_key,
-      })
-    }
-    this.providers.set(model.model, provider)
 
     const agent = new ToolLoopAgent({
-      model: provider.chat(conf.data?.model || 'gpt-4o'),
+      model: openai.createModel(conf.data),
       output: opt?.json ? Output.json() : Output.text(),
+      temperature: conf.data.advanced.temperature,
+      topP: conf.data.advanced.top_p,
+      presencePenalty: conf.data.advanced.presence_penalty,
+      frequencyPenalty: conf.data.advanced.frequency_penalty,
     })
     this.agents.set(name, [agent, conf, model])
     return true

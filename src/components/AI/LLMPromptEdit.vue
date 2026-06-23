@@ -121,7 +121,7 @@ async function testJob() {
         ? 'filtering'
         : props.data === 'aiGreeting'
           ? 'greetings'
-          : 'assistant'
+          : 'reply'
     const form = {
       ...conf.formData[props.data],
       enable: true,

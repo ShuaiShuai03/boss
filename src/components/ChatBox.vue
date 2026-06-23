@@ -9,9 +9,12 @@ import { VueChatState, Message } from '@/composables/useModel/test'
 
 const open = defineModel('open', { default: false })
 const following = ref(true)
+const replyContext = ref('')
+const replyLoading = ref(false)
 const chatMessages = useTemplateRef('chatMessages') // TODO: auto scroll
 
 const helper = useHelper()
+const toast = useToast()
 const selectJob = ref(
   helper.chatModel.jobs.value.length > 0 ? helper.chatModel.jobs.value[0] : null,
 )
@@ -28,6 +31,11 @@ const jobs = computed(() =>
 const messages = computed(() => {
   if (!selectJob.value) return
   return helper.chatModel.states.get(selectJob.value)
+})
+
+const selectedJobData = computed(() => {
+  if (!selectJob.value) return
+  return helper.jobMaps.get(selectJob.value)
 })
 
 watch(
@@ -47,6 +55,61 @@ function onClient(jobKey: string) {
 function isMessage(message: UIMessage): message is Message {
   logger.debug('Checking message:', message)
   return true
+}
+
+async function generateReplyDraft() {
+  if (!selectJob.value || !selectedJobData.value) {
+    toast.add({
+      title: '请先选择岗位',
+      color: 'warning',
+    })
+    return
+  }
+  if (!helper.conf.formData.aiReply.enable) {
+    toast.add({
+      title: '请先启用AI回复',
+      color: 'warning',
+    })
+    return
+  }
+  const context = replyContext.value.trim()
+  if (!context) {
+    toast.add({
+      title: '请输入HR消息或回复上下文',
+      color: 'warning',
+    })
+    return
+  }
+  if (!helper.chatModel.createAgent(helper.conf.formData.aiReply, 'reply')) {
+    toast.add({
+      title: 'AI回复模型未配置',
+      color: 'warning',
+    })
+    return
+  }
+
+  replyLoading.value = true
+  try {
+    selectedJobData.value.state.aiReplyInput = context
+    const result = await helper.chatModel.chat('reply', selectedJobData.value)
+    selectedJobData.value.state.aiReplyQ = result.prompt
+    selectedJobData.value.state.aiReplyR = result.reasoning_content
+    selectedJobData.value.state.aiReplyA = result.text.trim()
+    if (!selectedJobData.value.state.aiReplyA) {
+      toast.add({
+        title: 'AI回复为空',
+        color: 'warning',
+      })
+    }
+  } catch (err: any) {
+    logger.error(err)
+    toast.add({
+      title: err?.message ?? `${err}`,
+      color: 'error',
+    })
+  } finally {
+    replyLoading.value = false
+  }
 }
 
 const activeDots = ref<Set<number>>(new Set())
@@ -264,9 +327,27 @@ onUnmounted(() => {
       </UChatMessages>
     </template>
     <template #footer>
-      <UChatPrompt variant="soft">
-        <UChatPromptSubmit v-if="messages" :status="messages.statusRef.value" />
-      </UChatPrompt>
+      <div class="flex w-full flex-col gap-2">
+        <UTextarea
+          v-model="replyContext"
+          :rows="2"
+          :maxrows="5"
+          autoresize
+          placeholder="粘贴HR消息或输入回复上下文"
+          :disabled="replyLoading"
+        />
+        <div class="flex justify-end">
+          <UButton
+            color="primary"
+            icon="i-lucide-sparkles"
+            :loading="replyLoading || messages?.statusRef.value === 'streaming'"
+            :disabled="!messages || !selectedJobData"
+            @click="generateReplyDraft"
+          >
+            生成回复草稿
+          </UButton>
+        </div>
+      </div>
     </template>
   </USlideover>
 </template>

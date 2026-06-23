@@ -53,7 +53,7 @@ function change(v: Partial<FormDataAi>) {
         :label="formInfoData.aiReply.label"
         :data-help="formInfoData.aiReply['data-help']"
         :data="conf.formData.aiReply"
-        disabled
+        :lock="helper.workflow?.status.value === 'running'"
         @show="
           () => {
             aiBox = 'aiReply'

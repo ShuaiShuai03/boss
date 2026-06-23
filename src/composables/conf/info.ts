@@ -363,7 +363,26 @@ export const defaultFormData: FormData = {
   },
   aiReply: {
     enable: false,
-    prompt: [{ role: 'user', content: '帮我写一个回复的提示' }],
+    prompt: [
+      {
+        role: 'system',
+        content:
+          '你是求职者的聊天助手。根据岗位信息和HR消息生成一条自然、礼貌、简洁的中文回复。只输出可直接发送的回复内容，不要输出解释。',
+      },
+      {
+        role: 'user',
+        content: `## 岗位信息
+岗位名: {{ jobData.jobName }}
+公司: {{ jobData.brand.name }}
+薪资: {{ jobData.salary }}
+学历要求: {{ jobData.degreeName }}
+岗位描述:
+{{ jobData.jobDescription }}
+
+## HR消息或上下文
+{{ state.aiReplyInput }}`,
+      },
+    ],
   },
   amap: {
     key: '',
