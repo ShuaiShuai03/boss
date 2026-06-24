@@ -7,6 +7,22 @@ import type { ResponseType } from '@/utils/request'
 
 export const userKey = 'local:conf-user'
 
+export interface BackgroundRawResponse {
+  status: number
+  headers: Record<string, string>
+  body: string
+}
+
+export interface BackgroundRawRequest {
+  url: string
+  data?: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string | null
+  }
+  timeout?: number
+}
+
 export class BackgroundCounter {
   async request(args: {
     url: string
@@ -35,6 +51,24 @@ export class BackgroundCounter {
       return result
     })
     return res
+  }
+
+  async rawRequest(args: BackgroundRawRequest): Promise<BackgroundRawResponse> {
+    const signal = AbortSignal.timeout(args.timeout ?? 60000)
+    const res = await fetch(args.url, {
+      method: args.data?.method ?? 'GET',
+      headers: args.data?.headers,
+      body: args.data?.body,
+      signal,
+      mode: 'cors',
+      credentials: 'omit',
+    })
+
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: await res.text(),
+    }
   }
 
   async notify(args: Browser.notifications.NotificationCreateOptions) {

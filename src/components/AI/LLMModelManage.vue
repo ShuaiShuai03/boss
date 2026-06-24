@@ -60,8 +60,8 @@ function create(d: ModelConf) {
   }
   createBoxShow.value = false
 }
-function close() {
-  modelStore.initModel()
+async function close() {
+  await modelStore.initModel()
   open.value = false
 }
 
@@ -137,8 +137,14 @@ function importllm() {
         <UButton color="neutral" variant="outline" @click="close"> 取消 </UButton>
         <UButton color="success" @click="exportllm"> 导出 </UButton>
         <UButton color="success" @click="importllm"> 导入 </UButton>
-        <UButton @click="newllm"> 新建 </UButton>
-        <UButton @click="modelStore.saveModel"> 保存 </UButton>
+        <UButton :disabled="modelStore.isLoading.value" @click="newllm"> 新建 </UButton>
+        <UButton
+          :loading="modelStore.isSaving.value"
+          :disabled="modelStore.isLoading.value"
+          @click="modelStore.saveModel"
+        >
+          保存
+        </UButton>
       </div>
     </template>
   </UModal>

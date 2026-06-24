@@ -1,8 +1,25 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { LanguageModelV3 } from '@ai-sdk/provider'
 
-import { desc, other } from './common'
+import { counter } from '@/message'
+
+import { desc, getEffectiveAiTimeoutMs, other } from './common'
+import {
+  getModelEndpointCandidates,
+  normalizeOpenaiConfig,
+  normalizeOpenaiBaseUrl,
+  parseOpenaiModelIds,
+  previewBody,
+  type ModelEndpointCandidate,
+} from './openai-utils'
 import type { LLMConf, LLMInfo } from './type'
+
+export interface OpenaiModelDiscoveryResult {
+  models: string[]
+  sourceUrl: string
+  suggestedBaseUrl?: string
+  error?: string
+}
 
 export type OpenaiLLMConf = LLMConf<
   'openai',
@@ -14,8 +31,8 @@ export type OpenaiLLMConf = LLMConf<
     responses?: boolean
     other: other['other']
     advanced: {
-      json?: boolean | true
-      stream?: boolean | true
+      json?: boolean
+      stream?: boolean
 
       temperature?: number
       top_p?: number
@@ -42,42 +59,21 @@ const info: LLMInfo<OpenaiLLMConf> = {
     required: true,
   },
   base_url: {
-    desc: '可使用中转/代理API, 前提是符合openai的规范, 需要填写base api地址',
+    desc: '可使用中转/代理API，前提是符合 OpenAI 规范。可填写 Base URL，也可粘贴 /chat/completions 或 /models 完整端点，插件会自动修正。',
     type: 'input',
-    format: 'menu',
+    format: 'url',
     config: {
       placeholder: 'https://api.openai.com/v1',
-      items: [
-        'https://api.openai.com/v1',
-        'https://openrouter.ai/api/v1',
-        'https://api.deepseek.com',
-        'https://api.moonshot.cn/v1',
-        'https://token-plan-sgp.xiaomimimo.com/v1',
-        'https://ark.cn-beijing.volces.com/api/v3',
-      ],
-      createItem: 'always',
     },
     required: true,
   },
   api_key: { type: 'input', required: true },
   model: {
     config: {
-      placeholder: 'gpt-4o-mini',
-      items: [
-        'gpt-4o',
-        'gpt-5.4',
-        'deepseek-chat',
-        'doubao-seed-2-0-pro-260215',
-        'mimo-v2.5-pro',
-        'mimo-v2.5',
-        'kimi-k2.6',
-        'deepseek-v4-flash',
-        'minimax-m2.7',
-        'deepseek-v3.2',
-      ],
+      placeholder: '先填写 URL/API Key 自动获取，或手动输入模型名',
+      items: [],
       createItem: 'always',
     },
-    value: 'deepseek-chat',
     type: 'input',
     format: 'menu',
     required: true,
@@ -176,20 +172,136 @@ const info: LLMInfo<OpenaiLLMConf> = {
   },
 }
 
-const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf: OpenaiLLMConf) => {
-  const openai = createOpenAI({
-    baseURL: conf.base_url,
-    apiKey: conf.api_key,
-    headers: conf.advanced.extra_headers,
-    // fetch: counter.fetch,
-  })
-  if (conf.responses) {
-    return openai.responses(conf.model)
+function sanitizeMessage(message: string, apiKey?: string) {
+  let result = message
+  if (apiKey) {
+    result = result.replaceAll(apiKey, '[API_KEY]')
   }
-  return openai.chat(conf.model)
+  result = result.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+  result = result.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+  return result
+}
+
+function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries())
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  return headers
+}
+
+async function fetchModels(
+  candidate: ModelEndpointCandidate,
+  conf: Pick<OpenaiLLMConf, 'api_key' | 'advanced'>,
+) {
+  const res = await counter.rawRequest({
+    url: candidate.modelsUrl,
+    timeout: 30000,
+    data: {
+      method: 'GET',
+      headers: {
+        ...(conf.advanced?.extra_headers ?? {}),
+        Authorization: `Bearer ${conf.api_key}`,
+      },
+    },
+  })
+
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`HTTP ${res.status}: ${res.body}`)
+  }
+
+  const models = parseOpenaiModelIds(res.body)
+  if (models.length === 0) {
+    throw new Error(`响应中未找到模型 ID: ${previewBody(res.body)}`)
+  }
+
+  return {
+    models,
+    sourceUrl: candidate.modelsUrl,
+    baseUrl: candidate.baseUrl,
+  }
+}
+
+export async function discoverOpenaiModels(
+  conf: Pick<OpenaiLLMConf, 'base_url' | 'api_key' | 'advanced'>,
+): Promise<OpenaiModelDiscoveryResult> {
+  const normalizedConf = normalizeOpenaiConfig(conf)
+  const baseUrl = normalizeOpenaiBaseUrl(normalizedConf.base_url)
+  const candidates = getModelEndpointCandidates(normalizedConf.base_url)
+  if (!baseUrl || !normalizedConf.api_key) {
+    return {
+      models: [],
+      sourceUrl: candidates[0]?.modelsUrl ?? '',
+      error: '请先填写 Base URL 和 API Key',
+    }
+  }
+
+  const errors: string[] = []
+  for (const candidate of candidates) {
+    try {
+      const result = await fetchModels(candidate, normalizedConf)
+      return {
+        models: result.models,
+        sourceUrl: result.sourceUrl,
+        suggestedBaseUrl: result.baseUrl !== baseUrl ? result.baseUrl : undefined,
+      }
+    } catch (error) {
+      errors.push(
+        `${candidate.modelsUrl}: ${sanitizeMessage(
+          error instanceof Error ? error.message : String(error),
+          normalizedConf.api_key,
+        )}`,
+      )
+    }
+  }
+
+  return {
+    models: [],
+    sourceUrl: candidates[0]?.modelsUrl ?? '',
+    error: errors.join('\n'),
+  }
+}
+
+async function backgroundFetch(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeout: number,
+) {
+  const request = new Request(input, init)
+  const body = await request.text()
+  const canHaveBody = !['GET', 'HEAD'].includes(request.method.toUpperCase())
+  const res = await counter.rawRequest({
+    url: request.url,
+    timeout,
+    data: {
+      method: request.method,
+      headers: normalizeHeaders(request.headers),
+      body: canHaveBody ? body : undefined,
+    },
+  })
+
+  return new Response(res.body, {
+    status: res.status,
+    headers: res.headers,
+  })
+}
+
+const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf: OpenaiLLMConf) => {
+  const normalizedConf = normalizeOpenaiConfig(conf)
+  const timeout = getEffectiveAiTimeoutMs(normalizedConf.other?.timeout)
+  const openai = createOpenAI({
+    baseURL: normalizeOpenaiBaseUrl(normalizedConf.base_url),
+    apiKey: normalizedConf.api_key,
+    headers: normalizedConf.advanced.extra_headers,
+    fetch: (input, init) => backgroundFetch(input, init, timeout),
+  })
+  if (normalizedConf.responses) {
+    return openai.responses(normalizedConf.model)
+  }
+  return openai.chat(normalizedConf.model)
 }
 
 export const openai = {
   createModel,
+  discoverModels: discoverOpenaiModels,
   info,
 }

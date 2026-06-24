@@ -2,7 +2,7 @@ import type { StorageLikeAsync } from '@vueuse/core'
 import { defineProxy } from 'comctx'
 
 import { type ContentCounter } from './contentScript'
-import { ProvideContentAdapter } from './contentScriptShare'
+import { InjectContentAdapter } from './contentScriptShare'
 
 // export type * from './background'
 // export type * from './contentScript'
@@ -24,7 +24,7 @@ export const [, injectCounter] = defineProxy(() => ({}) as ContentCounter, {
 //   }
 // }
 
-export const InjectAdapter = ProvideContentAdapter
+export const InjectAdapter = InjectContentAdapter
 
 export const counter = injectCounter(new InjectAdapter())
 

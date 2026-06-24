@@ -15,6 +15,7 @@ import type { BossZpBossData, BossZpDetailData } from './types'
 const toast = useToast()
 export const sameCompanyKey = 'local:sameCompany'
 export const sameHrKey = 'local:sameHr'
+const BOSS_REQUEST_TIMEOUT_MS = 10000
 
 export type PublishResponse = {
   code: number
@@ -82,7 +83,7 @@ export async function sendPublishReq(
   retries = 3,
   _params = {},
 ): Promise<PublishResponse> {
-  if (retries === 0) {
+  if (retries <= 0) {
     throw new PublishError(errorMsg ?? '重试多次失败')
   }
   const url = new URL('https://www.zhipin.com/wapi/zpgeek/friend/add.json')
@@ -104,6 +105,7 @@ export async function sendPublishReq(
     const rawRes = await fetch(url, {
       method: 'POST',
       headers: { Zp_token: token },
+      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
     }).then((r) => r.json())
     const res = normalizePublishResponse(rawRes)
 
@@ -122,12 +124,20 @@ export async function sendPublishReq(
           await fetch(url, {
             method: 'POST',
             headers: { Zp_token: token },
+            signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
           })
 
-          return sendPublishReq(data, undefined, retries, { cid: 1 })
+          const nextRetries = retries - 1
+          if (nextRetries <= 0) {
+            throw new PublishError(`投递限制确认后仍未成功: ${content}`)
+          }
+          return sendPublishReq(data, undefined, nextRetries, { cid: 1 })
         } catch (e) {
+          if (e instanceof BossHelperError) {
+            throw e
+          }
           logger.error('尝试确认投递限制失败', e)
-          throw new PublishError(`投递限制确认失败]${content}`)
+          throw new PublishError(`投递限制确认失败: ${content}`)
         }
       } else if (content.includes('您今天已与150位BOSS沟通')) {
         throw new LimitError(content)
@@ -155,7 +165,7 @@ export async function requestBossData(
 ): Promise<BossZpBossData> {
   const opt = normalizeRequestBossDataOptions(options, retries)
   const retryCount = opt.retries ?? 3
-  if (retryCount === 0) {
+  if (retryCount <= 0) {
     throw new GreetError(opt.errorMsg ?? '重试多次失败')
   }
   const url = 'https://www.zhipin.com/wapi/zpchat/geek/getBossData'
@@ -182,6 +192,7 @@ export async function requestBossData(
       body: body,
       method: 'POST',
       headers: { Zp_token: token },
+      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
     }).then((r) => r.json())
 
     if (res.code !== 0) {

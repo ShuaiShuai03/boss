@@ -5,10 +5,12 @@ import { logger } from '@/utils/logger'
 
 import type { OpenaiLLMConf } from './openai'
 import { openai } from './openai'
+import { normalizeOpenaiConfig } from './openai-utils'
 import './test'
 
 const toast = useToast()
-export const confModelKey = 'conf-model'
+export const confModelKey = 'local:conf-model'
+const legacyConfModelKey = 'conf-model'
 export const llms = [openai.info]
 
 export type ModelConfData = OpenaiLLMConf
@@ -27,25 +29,76 @@ export interface ModelConf {
   // }
 }
 const modelData = ref<ModelConf[]>([])
+const isLoading = ref(true)
+const isSaving = ref(false)
+
+function normalizeModelConf(model: ModelConf): ModelConf {
+  if (!model.data) return model
+  return {
+    ...model,
+    data: normalizeOpenaiConfig(model.data),
+  }
+}
 
 export const useModel = () => {
   async function init() {
-    const data = await counter.storageGet<ModelConf[]>(confModelKey, [])
-    logger.debug('ai模型数据', data)
-    modelData.value = data
+    isLoading.value = true
+    try {
+      const localData = await counter.storageGet<ModelConf[] | null>(confModelKey, null)
+      if (Array.isArray(localData)) {
+        logger.debug('ai模型数据', localData)
+        modelData.value = localData.map(normalizeModelConf)
+        return
+      }
+
+      const legacyData = await counter.storageGet<ModelConf[] | null>(legacyConfModelKey, null)
+      if (Array.isArray(legacyData)) {
+        const migrated = legacyData.map(normalizeModelConf)
+        await counter.storageSet(confModelKey, migrated)
+        logger.debug('ai模型数据已迁移到 local', migrated)
+        modelData.value = migrated
+        return
+      }
+
+      modelData.value = []
+    } catch (error) {
+      logger.error('AI 模型配置加载失败', error)
+      toast.add({
+        title: `AI 模型配置加载失败: ${error instanceof Error ? error.message : String(error)}`,
+        color: 'error',
+      })
+      modelData.value = []
+    } finally {
+      isLoading.value = false
+    }
   }
 
   async function save() {
-    await counter.storageSet(confModelKey, toRaw(modelData.value))
-    toast.add({
-      title: '保存成功',
-      color: 'success',
-    })
+    isSaving.value = true
+    try {
+      const data = toRaw(modelData.value).map(normalizeModelConf)
+      modelData.value = data
+      await counter.storageSet(confModelKey, data)
+      toast.add({
+        title: '保存成功',
+        color: 'success',
+      })
+    } catch (error) {
+      toast.add({
+        title: `保存失败: ${error instanceof Error ? error.message : String(error)}`,
+        color: 'error',
+      })
+      throw error
+    } finally {
+      isSaving.value = false
+    }
   }
 
   return {
     initModel: init,
     modelData,
     saveModel: save,
+    isLoading,
+    isSaving,
   }
 }

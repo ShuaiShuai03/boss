@@ -40,10 +40,26 @@ export function parseFiltering(content: string) {
     reason: string
     score: number
   }
-  const res = parseGptJson<{
+  let res: Partial<{
     negative: Item[]
     positive: Item[]
-  }>(content)
+  }> | null = null
+  try {
+    res = parseGptJson<{
+      negative: Item[]
+      positive: Item[]
+    }>(content)
+  } catch {
+    return {
+      res: null,
+      message: '无法解析模型输出',
+      rating: Number.NEGATIVE_INFINITY,
+      data: {
+        negative: undefined,
+        positive: undefined,
+      },
+    }
+  }
 
   const hand = (acc: { score: number; reason: string }, curr: Item) => ({
     score: acc.score + Math.abs(curr.score),

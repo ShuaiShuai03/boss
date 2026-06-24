@@ -43,16 +43,24 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
 
       ctx.helper._clickJobCardAction(job.rawData.jobitem)
       const detail = await new Promise<BossZpDetailData>((resolve, reject) => {
-        setTimeout(() => {
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        let interval: ReturnType<typeof setInterval> | undefined
+        const cleanup = () => {
+          if (timeout) clearTimeout(timeout)
+          if (interval) clearInterval(interval)
+        }
+
+        timeout = setTimeout(() => {
+          cleanup()
           reject(new Error('bossZpDetailData获取超时'))
         }, 1000 * 60)
-        const interval = setInterval(() => {
+        interval = setInterval(() => {
           if (
             ctx.helper._jobDetail.value &&
             ctx.helper._jobDetail.value.lid === job.rawData.jobitem.lid
           ) {
+            cleanup()
             resolve(ctx.helper._jobDetail.value)
-            clearInterval(interval)
           }
         }, 100)
       })

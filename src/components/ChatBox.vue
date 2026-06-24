@@ -47,6 +47,10 @@ watch(
   },
 )
 
+watch(selectJob, () => {
+  replyContext.value = ''
+})
+
 function onClient(jobKey: string) {
   selectJob.value = jobKey
   following.value = false
@@ -82,7 +86,7 @@ async function generateReplyDraft() {
   }
   if (!helper.chatModel.createAgent(helper.conf.formData.aiReply, 'reply')) {
     toast.add({
-      title: 'AI回复模型未配置',
+      title: helper.chatModel.lastCreateAgentError || 'AI回复模型未配置',
       color: 'warning',
     })
     return

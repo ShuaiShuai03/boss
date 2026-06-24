@@ -1,5 +1,8 @@
 import type { LLMInfo } from './type'
 
+export const DEFAULT_AI_REQUEST_TIMEOUT_MS = 180000
+export const MIN_AI_REQUEST_TIMEOUT_MS = 60000
+
 export interface other {
   other: {
     timeout?: number
@@ -7,13 +10,24 @@ export interface other {
   }
 }
 
+export function getEffectiveAiTimeoutMs(timeout?: number | null) {
+  if (
+    typeof timeout === 'number' &&
+    Number.isFinite(timeout) &&
+    timeout >= MIN_AI_REQUEST_TIMEOUT_MS
+  ) {
+    return timeout
+  }
+  return DEFAULT_AI_REQUEST_TIMEOUT_MS
+}
+
 export const other: LLMInfo<other>['other'] = {
   value: {
     timeout: {
-      value: 18000,
+      value: DEFAULT_AI_REQUEST_TIMEOUT_MS,
       type: 'input',
       format: 'number',
-      desc: 'GPT请求的超时时间,超时后不会进行重试将跳过岗位,默认18000s / 30分钟',
+      desc: 'GPT请求的超时时间，单位毫秒。超时后不会进行重试，将跳过岗位。默认180000毫秒 / 3分钟',
     },
     // background: {
     //   value: false,

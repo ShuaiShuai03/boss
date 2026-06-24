@@ -7,6 +7,7 @@ import type { ConfigLevel, FormData } from '@/types/formData'
 import deepmerge, { jsonClone } from '@/utils/deepmerge'
 import { exportJson, importJson } from '@/utils/jsonImportExport'
 import { logger } from '@/utils/logger'
+import { TimeoutError, withTimeout } from '@/utils/promise'
 
 import { defaultFormData } from './info'
 
@@ -14,6 +15,7 @@ export * from './info'
 
 const formDataPresetKey = 'local:FormDataPrese'
 const formDataPresetsKey = 'local:FormDataPreses'
+const CONF_SAVE_TIMEOUT_MS = 10000
 
 export const appearanceConf = useStorageAsync(
   'appearance-conf',
@@ -35,6 +37,8 @@ export const appearanceConf = useStorageAsync(
 const isLoading = ref(true)
 const formData: FormData = reactive(defaultFormData)
 const formDataPreset = ref('default')
+const isSaving = ref(false)
+let savingPromise: Promise<void> | null = null
 const formDataPresets = ref([
   {
     label: '默认配置',
@@ -176,27 +180,54 @@ export const useConf = () => {
     }
   }
 
-  async function confSaving() {
-    const v = jsonClone(formData)
-    try {
-      await counter.storageSet(formDataKey(), v)
-      await counter.storageSet(formDataPresetKey, formDataPreset.value)
-      await counter.storageSet(formDataPresetsKey, formDataPresets.value)
+  function isExtensionContextInvalidated(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return message.toLowerCase().includes('extension context invalidated')
+  }
 
-      logger.debug('formData保存', v)
-      toast.add({
-        title: '保存成功',
-        color: 'success',
-      })
-    } catch (error: any) {
-      toast.add({
-        title: `保存失败: ${error.message}`,
-        color: 'error',
-      })
-      throw error
+  async function confSaving() {
+    if (savingPromise) {
+      return savingPromise
     }
+    isSaving.value = true
+    savingPromise = (async () => {
+      const v = jsonClone(formData)
+      try {
+        await withTimeout(
+          (async () => {
+            await counter.storageSet(formDataKey(), v)
+            await counter.storageSet(formDataPresetKey, formDataPreset.value)
+            await counter.storageSet(formDataPresetsKey, formDataPresets.value)
+          })(),
+          CONF_SAVE_TIMEOUT_MS,
+          '保存配置超时，请刷新当前 BOSS 页面后再试',
+        )
+
+        logger.debug('formData保存', v)
+        toast.add({
+          title: '保存成功',
+          color: 'success',
+        })
+      } catch (error: any) {
+        const title =
+          error instanceof TimeoutError
+            ? error.message
+            : isExtensionContextInvalidated(error)
+              ? '扩展已重新加载，请刷新当前 BOSS 页面后再保存配置'
+              : `保存失败: ${error.message}`
+        toast.add({
+          title,
+          color: 'error',
+        })
+        throw error
+      } finally {
+        isSaving.value = false
+        savingPromise = null
+      }
+    })()
     // const helper = useHelper()
     // helper.workflow?.rebuild()
+    return savingPromise
   }
 
   async function confReload() {

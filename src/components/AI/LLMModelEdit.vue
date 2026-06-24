@@ -1,10 +1,12 @@
 <script lang="ts" setup>
-import { streamText } from 'ai'
-import { reactive, ref } from 'vue'
+import { generateText } from 'ai'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 
 import type { ModelConf } from '@/composables/useModel'
+import { getEffectiveAiTimeoutMs } from '@/composables/useModel/common'
 import { openai } from '@/composables/useModel/openai'
 import type { OpenaiLLMConf } from '@/composables/useModel/openai'
+import { normalizeOpenaiConfig } from '@/composables/useModel/openai-utils'
 import { jsonClone } from '@/utils/deepmerge'
 import { logger } from '@/utils/logger'
 
@@ -21,7 +23,9 @@ function color16() {
   const r = Math.floor(Math.random() * 256)
   const g = Math.floor(Math.random() * 256)
   const b = Math.floor(Math.random() * 256)
-  const color = `#${r.toString(16)}${g.toString(16)}${b.toString(16)}`
+  const color = `#${r.toString(16).padStart(2, '0')}${g
+    .toString(16)
+    .padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
   return color
 }
 
@@ -31,11 +35,24 @@ const createColor = ref(props.model?.color || color16())
 const testShow = ref(false)
 
 const llmFormData = reactive(
-  props.model?.data ?? ({ mode: 'openai', advanced: {}, other: {} } as OpenaiLLMConf),
+  normalizeOpenaiConfig(
+    jsonClone(props.model?.data ?? ({ mode: 'openai', advanced: {}, other: {} } as OpenaiLLMConf)),
+  ),
 )
 
 const testIn = ref('')
 const testOut = ref('')
+const testStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
+const modelLoading = ref(false)
+const modelError = ref('')
+const modelSourceUrl = ref('')
+const baseUrlNotice = ref('')
+const discoveredModels = ref<string[]>([])
+let modelRefreshTimer: ReturnType<typeof setTimeout> | undefined
+
+const modelItems = computed(() =>
+  Array.from(new Set([llmFormData.model, ...discoveredModels.value].filter(Boolean))),
+)
 
 const testExample = {
   Json: [
@@ -91,33 +108,100 @@ interface UserInfo {
   ],
 }
 
+function sanitizeError(err: unknown) {
+  let message = err instanceof Error ? err.message : String(err)
+  if (llmFormData.api_key) {
+    message = message.replaceAll(llmFormData.api_key, '[API_KEY]')
+  }
+  return message
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+}
+
+async function refreshModels() {
+  modelError.value = ''
+  baseUrlNotice.value = ''
+  modelSourceUrl.value = ''
+  if (!llmFormData.base_url || !llmFormData.api_key) {
+    discoveredModels.value = []
+    return
+  }
+
+  modelLoading.value = true
+  try {
+    const result = await openai.discoverModels(normalizeOpenaiConfig(llmFormData))
+    discoveredModels.value = result.models
+    modelSourceUrl.value = result.sourceUrl
+    if (result.models.length && !llmFormData.model) {
+      llmFormData.model = result.models[0]
+    }
+    if (result.suggestedBaseUrl && llmFormData.base_url !== result.suggestedBaseUrl) {
+      llmFormData.base_url = result.suggestedBaseUrl
+      baseUrlNotice.value = `已自动修正 Base URL 为 ${result.suggestedBaseUrl}`
+    }
+    modelError.value = result.error ?? ''
+  } catch (err) {
+    discoveredModels.value = []
+    modelError.value = sanitizeError(err)
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+function debounceRefreshModels() {
+  if (modelRefreshTimer) clearTimeout(modelRefreshTimer)
+  modelRefreshTimer = setTimeout(() => {
+    void refreshModels()
+  }, 600)
+}
+
 async function test() {
   const data: ModelConf = JSON.parse(JSON.stringify(props.model || { name: '', key: '' }))
   data.name = createName.value
-  data.data = jsonClone(llmFormData) as ModelConf['data'] & {}
+  try {
+    data.data = normalizeOpenaiConfig(jsonClone(llmFormData)) as ModelConf['data'] & {}
+  } catch (err) {
+    testStatus.value = 'error'
+    testOut.value = sanitizeError(err)
+    toast.add({
+      title: testOut.value,
+      color: 'error',
+    })
+    return
+  }
+
+  if (!data.data.base_url || !data.data.api_key || !data.data.model) {
+    testStatus.value = 'error'
+    testOut.value = '请先填写 Base URL、API Key 和模型名'
+    toast.add({
+      title: testOut.value,
+      color: 'warning',
+    })
+    return
+  }
 
   const model = openai.createModel(data.data)
 
   logger.group('LLMTest')
+  testStatus.value = 'loading'
+  testOut.value = '请求中...'
   try {
-    const result = streamText({
+    const result = await generateText({
       model: model,
-      prompt: testIn.value,
+      prompt: testIn.value.trim() || '请用一句中文回复：模型连接正常。',
+      timeout: getEffectiveAiTimeoutMs(data.data.other?.timeout),
+      allowSystemInMessages: true,
     })
-    testOut.value = ''
-    for await (const part of result.fullStream) {
-      logger.debug('TestResStream', part)
-      if (part.type === 'reasoning-start') {
-        testOut.value += '<思考过程>'
-      } else if (part.type === 'reasoning-end') {
-        testOut.value += '</思考过程>\n\n'
-      } else if (part.type === 'text-delta' || part.type === 'reasoning-delta') {
-        testOut.value += part.text
-      }
-    }
+    logger.debug('TestRes', result)
+    testOut.value = result.reasoningText
+      ? `<思考过程>${result.reasoningText}</思考过程>\n\n${result.text}`
+      : result.text
+    testStatus.value = 'success'
   } catch (err: any) {
+    testStatus.value = 'error'
+    testOut.value = sanitizeError(err)
     toast.add({
-      title: `${err}`,
+      title: testOut.value,
       color: 'error',
     })
   }
@@ -126,13 +210,35 @@ async function test() {
 }
 
 function create() {
-  const data: ModelConf = props.model || { name: '', key: '' }
+  const data: ModelConf = jsonClone(props.model || { name: '', key: '' })
   data.name = createName.value
-  data.data = jsonClone(llmFormData) as ModelConf['data'] & {}
+  try {
+    data.data = normalizeOpenaiConfig(jsonClone(llmFormData)) as ModelConf['data'] & {}
+  } catch (err) {
+    toast.add({
+      title: sanitizeError(err),
+      color: 'error',
+    })
+    return
+  }
   data.data.mode = 'openai'
   data.color = createColor.value
   emit('create', data)
 }
+
+watch(
+  () => [
+    llmFormData.base_url,
+    llmFormData.api_key,
+    JSON.stringify(llmFormData.advanced?.extra_headers ?? {}),
+  ],
+  debounceRefreshModels,
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  if (modelRefreshTimer) clearTimeout(modelRefreshTimer)
+})
 </script>
 
 <template>
@@ -153,7 +259,41 @@ function create() {
         </UFormField>
 
         <div class="mt-4">
-          <LLMForm v-model="llmFormData" />
+          <LLMForm v-model="llmFormData" :model-items="modelItems" />
+          <div class="mt-3 space-y-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+              <UButton
+                color="neutral"
+                variant="outline"
+                size="sm"
+                :loading="modelLoading"
+                @click="refreshModels()"
+              >
+                刷新模型列表
+              </UButton>
+              <span v-if="modelLoading" class="text-muted">正在获取模型列表...</span>
+              <span v-else-if="discoveredModels.length" class="text-muted">
+                已从 {{ modelSourceUrl }} 获取 {{ discoveredModels.length }} 个模型
+              </span>
+              <span v-else-if="modelSourceUrl" class="text-muted">
+                已请求 {{ modelSourceUrl }}
+              </span>
+            </div>
+            <UAlert
+              v-if="baseUrlNotice"
+              color="info"
+              variant="subtle"
+              title="Base URL 已修正"
+              :description="baseUrlNotice"
+            />
+            <UAlert
+              v-if="modelError"
+              color="error"
+              variant="subtle"
+              title="模型列表获取失败"
+              :description="modelError"
+            />
+          </div>
         </div>
       </div>
     </template>
@@ -185,12 +325,27 @@ function create() {
         <UTextarea v-model="testIn" :rows="9" placeholder="输入提示词" />
         <UTextarea :model-value="testOut" :rows="9" placeholder="GPT响应" />
       </div>
+      <UAlert
+        v-if="testStatus === 'success'"
+        class="mt-3"
+        color="success"
+        variant="subtle"
+        title="测试请求成功"
+      />
+      <UAlert
+        v-else-if="testStatus === 'error'"
+        class="mt-3"
+        color="error"
+        variant="subtle"
+        title="测试请求失败"
+        :description="testOut"
+      />
     </template>
 
     <template #footer>
       <div class="flex justify-end gap-2">
         <UButton color="neutral" variant="outline" @click="testShow = false"> 返回 </UButton>
-        <UButton @click="test"> 请求 </UButton>
+        <UButton :loading="testStatus === 'loading'" @click="test"> 请求 </UButton>
       </div>
     </template>
   </UModal>

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { InputMenuItem } from '@nuxt/ui'
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 
 import LLMFormItem from '@/components/AI/LLMFormItem.vue'
 import { ModelConfData } from '@/composables/useModel'
@@ -8,6 +8,9 @@ import { openai } from '@/composables/useModel/openai'
 import type { LLMInfo } from '@/composables/useModel/type'
 
 const formData = defineModel<ModelConfData>({ required: true })
+const props = defineProps<{
+  modelItems?: string[]
+}>()
 
 const enabledFields = reactive<Record<string, boolean>>({})
 
@@ -46,6 +49,20 @@ async function getIconGroups() {
 }
 
 const iconGroups = ref<InputMenuItem[]>([])
+const formInfo = computed<LLMInfo<ModelConfData>>(() => {
+  const info = openai.info as unknown as LLMInfo<ModelConfData>
+  const modelInfo = info.model as any
+  return {
+    ...info,
+    model: {
+      ...info.model,
+      config: {
+        ...modelInfo.config,
+        items: props.modelItems ?? modelInfo.config?.items,
+      },
+    },
+  } as LLMInfo<ModelConfData>
+})
 
 onMounted(() => {
   getIconGroups().then((groups) => {
@@ -67,7 +84,7 @@ onMounted(() => {
 
 <template>
   <div class="openai-form space-y-6" ref="LLMFormRef">
-    <div v-for="(item, key) in openai.info" :key="key">
+    <div v-for="(item, key) in formInfo" :key="key">
       <div v-if="'mode' in item" class="mb-2">
         <!-- <h3 class="text-lg font-semibold">
           {{ item.label || 'Configuration' }}

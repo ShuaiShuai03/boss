@@ -7,6 +7,13 @@ import elmGetter from '@/utils/elmGetter'
 const CONTAINER_ID = 'boss-helper-external-wrapper'
 const placeholder = ref<HTMLElement | null>(null)
 const externalWrapper = ref<HTMLElement | null>(null)
+const movedTargets: Array<{
+  el: HTMLElement
+  parent: Node
+  nextSibling: ChildNode | null
+  margin: string
+  width: string
+}> = []
 
 const { x, y, width, height } = useElementBounding(placeholder)
 const { width: windowWidth } = useWindowSize()
@@ -73,13 +80,36 @@ async function collectTargets() {
   return targets
 }
 
+function restoreTargets() {
+  while (movedTargets.length) {
+    const item = movedTargets.pop()!
+    item.el.style.margin = item.margin
+    item.el.style.width = item.width
+    if (item.nextSibling && item.nextSibling.parentNode === item.parent) {
+      item.parent.insertBefore(item.el, item.nextSibling)
+    } else {
+      item.parent.appendChild(item.el)
+    }
+  }
+}
+
 onMounted(async () => {
   const wrapper = await initExternalContainer()
+  restoreTargets()
   const targets = await collectTargets()
 
   if (targets.length) {
     wrapper.innerHTML = ''
     targets.forEach((el) => {
+      if (el.parentNode) {
+        movedTargets.push({
+          el,
+          parent: el.parentNode,
+          nextSibling: el.nextSibling,
+          margin: el.style.margin,
+          width: el.style.width,
+        })
+      }
       el.style.setProperty('margin', '0', 'important')
       el.style.setProperty('width', '100%', 'important')
       wrapper.appendChild(el)
@@ -94,6 +124,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  restoreTargets()
   if (externalWrapper.value) {
     externalWrapper.value.style.display = 'none'
   }

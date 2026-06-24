@@ -7,8 +7,6 @@ import {
   ToolLoopAgent,
   UIMessage,
   createIdGenerator,
-  isReasoningUIPart,
-  isTextUIPart,
 } from 'ai'
 import { ShallowReactive } from 'vue'
 
@@ -16,11 +14,21 @@ import { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 
 import { ModelConf } from '.'
-import { openai } from './openai'
 import { WorkflowData } from '../useApplying/type'
 import { HelperContext } from '../useHelper'
+import { getEffectiveAiTimeoutMs } from './common'
+import { openai } from './openai'
 
-const role = ['system', 'user', 'assistant', 'boss', 'jd', 'filtering', 'greetings', 'reply'] as const
+const role = [
+  'system',
+  'user',
+  'assistant',
+  'boss',
+  'jd',
+  'filtering',
+  'greetings',
+  'reply',
+] as const
 type MessageRole = (typeof role)[number]
 
 export interface Message extends ChatMessageProps {
@@ -116,6 +124,7 @@ export class ChatModel {
 
   agents: Map<MessageRole, [ToolLoopAgent, ModelConf, FormDataAi]> = new Map()
   generateId: { [key in MessageRole]: () => string }
+  lastCreateAgentError = ''
 
   constructor(public ctx: HelperContext<any, any, any>) {
     this.generateId = role.reduce(
@@ -137,14 +146,33 @@ export class ChatModel {
       json?: boolean
     },
   ): boolean {
+    this.lastCreateAgentError = ''
+    const availableKeys = this.ctx.models.modelData.value.map((m) => m.key).filter(Boolean)
+    if (!model.model) {
+      this.lastCreateAgentError = `模型 key 为空，可用模型 key: ${
+        availableKeys.join(', ') || '无'
+      }`
+      logger.warn('创建 AI Agent 失败', this.lastCreateAgentError)
+      return false
+    }
     const conf = this.ctx.models.modelData.value.find((m) => m.key === model.model)
-    if (!conf?.data || !model.model) {
+    if (!conf) {
+      this.lastCreateAgentError = `找不到模型 key: ${model.model}，可用模型 key: ${
+        availableKeys.join(', ') || '无'
+      }`
+      logger.warn('创建 AI Agent 失败', this.lastCreateAgentError)
+      return false
+    }
+    if (!conf.data) {
+      this.lastCreateAgentError = `模型 key ${model.model} 缺少 data 配置`
+      logger.warn('创建 AI Agent 失败', this.lastCreateAgentError)
       return false
     }
 
     const agent = new ToolLoopAgent({
       model: openai.createModel(conf.data),
       output: opt?.json ? Output.json() : Output.text(),
+      allowSystemInMessages: true,
       temperature: conf.data.advanced.temperature,
       topP: conf.data.advanced.top_p,
       presencePenalty: conf.data.advanced.presence_penalty,
@@ -166,7 +194,7 @@ export class ChatModel {
 
     const [agent, modelConf, model] = _agent
 
-    const timeout = modelConf.data?.other?.timeout ?? 60000
+    const timeout = getEffectiveAiTimeoutMs(modelConf.data?.other?.timeout)
     const messages = renderMessages(model, data)
     const prompt = formatPrompt(messages)
     if (!this.states.has(data.jobData.key)) {
@@ -234,101 +262,55 @@ ${data.jobData.jobDescription}`,
       },
       messages,
     }
-    let index = -1
-    const stream = await agent.stream({
-      timeout,
-      messages,
-      onStepFinish: (message) => {
-        if (index >= 0) {
-          state.replaceMessage(index, {
-            ...msg,
-            parts: message.content as typeof msg.parts,
-            metadata: {
-              usage: message.usage,
-              providerMetadata: message.providerMetadata,
-            },
-          })
-        }
-        state.status = 'ready'
-      },
-    })
-
     state.pushMessage(msg)
-    index = state.messages.findIndex((m) => m.id === msg.id)
+    const index = state.messages.findIndex((m) => m.id === msg.id)
 
-    let text = ''
-    let reasoning = ''
     try {
-      for await (const chunk of stream.toUIMessageStream({
-        originalMessages: state.messages,
-        sendReasoning: true,
-        onFinish: (message) => {
-          logger.debug('Chat finished', message)
+      const result = await agent.generate({ timeout, messages })
+      const text = result.text
+      const reasoning = result.reasoningText ?? ''
+      msg.parts = [
+        ...(reasoning
+          ? [
+              {
+                type: 'reasoning' as const,
+                text: reasoning,
+                state: 'done' as const,
+              },
+            ]
+          : []),
+        {
+          type: 'text' as const,
+          text,
+          state: 'done' as const,
         },
-      })) {
-        let part: (typeof msg.parts)[number] | null = null
-        const lastPart = msg.parts[msg.parts.length - 1]
-        switch (chunk.type) {
-          case 'reasoning-delta':
-            reasoning += chunk.delta
-            part = {
-              type: 'reasoning',
-              text: chunk.delta,
-              state: 'streaming',
-            }
-            break
-          case 'reasoning-end':
-            if (isReasoningUIPart(lastPart)) {
-              lastPart.state = 'done'
-            }
-            break
-          case 'text-delta':
-            text += chunk.delta
-            part = {
-              type: 'text',
-              text: chunk.delta,
-              state: 'streaming',
-            }
-            break
-          case 'text-end':
-            if (isTextUIPart(lastPart)) {
-              lastPart.state = 'done'
-            }
-            break
-        }
-        if (part) {
-          msg.parts.push(part)
-          state.replaceMessage(index, msg)
-        }
-        logger.debug('Received message chunk', chunk)
-      }
+      ]
+      state.replaceMessage(index, {
+        ...msg,
+        metadata: {
+          usage: result.usage,
+          providerMetadata: result.providerMetadata,
+        },
+      })
       state.status = 'ready'
+      logger.debug('Chat finished', result)
+      return {
+        text,
+        prompt,
+        reasoning_content: reasoning || null,
+      }
     } catch (e) {
       state.status = 'error'
-      state.error = e as Error
-      logger.error('Error during chat streaming', e)
-      throw e
-    }
-
-    // for await (const chunk of readUIMessageStream({ // BUG: 无法正确处理消息
-    //   stream: stream.toUIMessageStream({
-    //     originalMessages: msgs.messages,
-    //     sendReasoning: true,
-    //   }),
-    //   message: msg,
-    // })) {
-    //   msgs.replaceMessage(index, chunk)
-    // }
-    if (!text) {
-      try {
-        text = await stream.text
-      } catch {}
-    }
-
-    return {
-      text,
-      prompt,
-      reasoning_content: reasoning || null,
+      const message = e instanceof Error ? e.message : String(e)
+      const error =
+        e instanceof DOMException && e.name === 'TimeoutError'
+          ? new Error('AI 请求超时', { cause: e })
+          : /timeout|timed out|aborted/i.test(message)
+            ? new Error('AI 请求超时', { cause: e })
+            : e
+      state.error = error as Error
+      logger.error('Error during chat generation', e)
+      throw error
     }
   }
 }

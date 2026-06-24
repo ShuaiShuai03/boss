@@ -114,10 +114,9 @@ const dailyLimit = computed(
   () => conf.formData.dailyLimit.value || conf.formData.deliveryLimit.value,
 )
 
-onMounted(() => {
+onMounted(async () => {
   root = (container.value?.getRootNode() as ShadowRoot) ?? document
-  void conf.confInit()
-  void model.initModel()
+  await Promise.all([conf.confInit(), model.initModel()])
   chatOpen.value = appearanceConf.value.defaultShowChatBox
 })
 

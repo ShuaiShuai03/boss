@@ -1,18 +1,22 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import LLMModelManage from '@/components/AI/LLMModelManage.vue'
 import LLMPromptEdit from '@/components/AI/LLMPromptEdit.vue'
 import FormSwitch from '@/components/form/FormSwitch.vue'
 import { formInfoData, useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
+import { useModel } from '@/composables/useModel'
 import type { FormDataAi } from '@/types/formData'
 
 const helper = useHelper()
 const conf = useConf()
+const model = useModel()
 const aiBoxShow = ref(false)
-const aiConfBoxShow = ref(false)
 const aiBox = ref<'aiGreeting' | 'aiFiltering' | 'aiReply' | 'record'>('aiGreeting')
+const aiControlsDisabled = computed(
+  () => conf.isLoading.value || model.isLoading.value || helper.workflow?.status.value === 'running',
+)
 
 function change(v: Partial<FormDataAi>) {
   v.enable = !v.enable
@@ -27,7 +31,8 @@ function change(v: Partial<FormDataAi>) {
         :label="formInfoData.aiGreeting.label"
         :data-help="formInfoData.aiGreeting['data-help']"
         :data="conf.formData.aiGreeting"
-        :lock="helper.workflow?.status.value === 'running'"
+        :lock="aiControlsDisabled"
+        :disabled="aiControlsDisabled"
         @show="
           () => {
             aiBox = 'aiGreeting'
@@ -40,7 +45,8 @@ function change(v: Partial<FormDataAi>) {
         :label="formInfoData.aiFiltering.label"
         :data-help="formInfoData.aiFiltering['data-help']"
         :data="conf.formData.aiFiltering"
-        :lock="helper.workflow?.status.value === 'running'"
+        :lock="aiControlsDisabled"
+        :disabled="aiControlsDisabled"
         @show="
           () => {
             aiBox = 'aiFiltering'
@@ -53,7 +59,8 @@ function change(v: Partial<FormDataAi>) {
         :label="formInfoData.aiReply.label"
         :data-help="formInfoData.aiReply['data-help']"
         :data="conf.formData.aiReply"
-        :lock="helper.workflow?.status.value === 'running'"
+        :lock="aiControlsDisabled"
+        :disabled="aiControlsDisabled"
         @show="
           () => {
             aiBox = 'aiReply'
@@ -74,7 +81,12 @@ function change(v: Partial<FormDataAi>) {
     </div>
     <div>
       <LLMModelManage>
-        <UButton color="primary" data-help="配置需要使用的LLM大模型" @click="aiConfBoxShow = true">
+        <UButton
+          color="primary"
+          data-help="配置需要使用的LLM大模型"
+          :loading="model.isLoading.value"
+          :disabled="conf.isLoading.value || model.isLoading.value"
+        >
           模型配置
         </UButton>
       </LLMModelManage>
@@ -83,7 +95,7 @@ function change(v: Partial<FormDataAi>) {
     <LLMPromptEdit
       v-if="aiBoxShow && aiBox !== 'record'"
       v-model="aiBoxShow"
-      v-key="aiBox"
+      :key="aiBox"
       :data="aiBox"
     />
   </div>

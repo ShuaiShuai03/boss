@@ -1,12 +1,12 @@
 <script lang="ts" setup>
-import { h, reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
 import { parseFiltering } from '@/composables/useApplying/utils'
 import { JobData, useHelper } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
-import type { FormInfoAi, Prompt } from '@/types/formData'
+import type { Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
 
 import Alert from '../Alert.vue'
@@ -19,13 +19,30 @@ const helper = useHelper()
 const conf = useConf()
 const model = useModel()
 const show = defineModel<boolean>({ required: true })
-const currentModel = ref(conf.formData[props.data].model)
+const currentModel = ref<string>()
+const saving = ref(false)
+const saveError = ref('')
 
-const score = ref(props.data === 'aiFiltering' ? (conf.formData[props.data].score ?? 10) : 10)
+const score = ref(10)
 
 const role = ['system', 'user', 'assistant']
 
-const message = ref<Prompt>(jsonClone(conf.formData[props.data].prompt))
+const message = ref<Prompt>([])
+
+function normalizeModelKey(value: unknown) {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object' && 'key' in value) {
+    const key = (value as { key?: unknown }).key
+    return typeof key === 'string' ? key : undefined
+  }
+}
+
+function resetFromConfig() {
+  currentModel.value = normalizeModelKey(conf.formData[props.data].model)
+  message.value = jsonClone(conf.formData[props.data].prompt)
+  score.value = props.data === 'aiFiltering' ? (conf.formData[props.data].score ?? 10) : 10
+  saveError.value = ''
+}
 
 function inputExample() {
   message.value = jsonClone(defaultFormData[props.data].prompt)
@@ -48,6 +65,7 @@ interface TestData {
   loading: boolean
 }
 interface TestContent {
+  id: string
   time: string
   prompt?: string
   reasoning_content?: string | null
@@ -57,6 +75,16 @@ interface TestContent {
 const testData = reactive<Array<TestData>>([])
 const expandTestRowKeys = ref<string[]>([])
 const testDataContent = reactive<Record<string, TestContent[]>>({})
+
+function clearTestState() {
+  testData.splice(0, testData.length)
+  Object.keys(testDataContent).forEach((key) => {
+    delete testDataContent[key]
+  })
+  expandTestRowKeys.value = []
+  testJobLoading.value = false
+  testJobStop.value = true
+}
 
 function handleExpandChange(row: TestData) {
   logger.info('handleExpandChange', row)
@@ -68,6 +96,7 @@ function handleExpandChange(row: TestData) {
 }
 
 function test() {
+  clearTestState()
   testDialog.value = true
 }
 
@@ -130,7 +159,7 @@ async function testJob() {
     }
     if (!helper.chatModel.createAgent(form, agentName, { json: props.data === 'aiFiltering' })) {
       toast.add({
-        title: '模型配置不可用',
+        title: helper.chatModel.lastCreateAgentError || '模型配置不可用',
         color: 'warning',
       })
       return
@@ -152,6 +181,7 @@ async function testJob() {
           content = parseFiltering(content).message || content
         }
         testDataContent[item.key].push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
           time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
           prompt: result.prompt,
           reasoning_content: result.reasoning_content,
@@ -185,21 +215,39 @@ async function testJob() {
 }
 
 async function savePrompt() {
-  if (currentModel.value == null) {
+  const modelKey = normalizeModelKey(currentModel.value)
+  if (!modelKey) {
     toast.add({
       title: '请在右上角选择模型',
       color: 'warning',
     })
     return
   }
-  conf.formData[props.data].model = currentModel.value
-  conf.formData[props.data].prompt = message.value
-
-  if (props.data === 'aiFiltering') {
-    conf.formData[props.data].score = score.value
+  if (!model.modelData.value.some((item) => item.key === modelKey)) {
+    toast.add({
+      title: '模型不存在，请先在模型配置中保存该模型',
+      color: 'warning',
+    })
+    return
   }
-  await conf.confSaving()
-  show.value = false
+  saving.value = true
+  saveError.value = ''
+  try {
+    conf.formData[props.data].model = modelKey
+    conf.formData[props.data].prompt = jsonClone(message.value)
+
+    if (props.data === 'aiFiltering') {
+      conf.formData[props.data].score = score.value
+    }
+    await conf.confSaving()
+    show.value = false
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    saveError.value = message
+    logger.error('保存 AI Prompt 失败', err)
+  } finally {
+    saving.value = false
+  }
 }
 
 const promptModelRef = useTemplateRef('promptModel')
@@ -207,6 +255,22 @@ const testModelRef = useTemplateRef('testModel')
 
 onMounted(() => {
   logger.info('LLMPromptEdit mounted', { promptModelRef, testModelRef })
+})
+
+watch(
+  [() => props.data, show],
+  ([, opened]) => {
+    if (opened) {
+      resetFromConfig()
+    }
+  },
+  { immediate: true },
+)
+
+watch(testDialog, (opened) => {
+  if (!opened) {
+    clearTestState()
+  }
 })
 </script>
 
@@ -225,7 +289,7 @@ onMounted(() => {
       </div>
       <div class="w-full flex items-center justify-between" ref="promptModel">
         <div class="flex gap-2">
-          <UButton color="neutral"> 多对话模式 </UButton>
+          <UButton color="neutral" disabled> 多对话模式 </UButton>
           <UButton color="primary" @click="addMessage"> 添加消息 </UButton>
         </div>
         <div class="flex gap-2">
@@ -236,6 +300,7 @@ onMounted(() => {
             labelKey="name"
             valueKey="key"
             placeholder="选择模型"
+            :disabled="model.isLoading.value"
             :portal="promptModelRef?.parentElement ?? false"
           >
             <!-- <template #item="{ item }">
@@ -300,12 +365,25 @@ onMounted(() => {
           <UTextarea v-model="item.content" autoresize :rows="2" :maxrows="6" class="flex-1" />
         </div>
       </div>
+      <UAlert
+        v-if="saveError"
+        color="error"
+        variant="subtle"
+        title="保存失败"
+        :description="saveError"
+      />
     </template>
 
     <template #footer>
-      <UButton color="neutral" variant="outline" @click="show = false"> 关闭 </UButton>
-      <UButton color="neutral" variant="soft" @click="test"> 测试 </UButton>
-      <UButton color="primary" @click="savePrompt"> 保存 </UButton>
+      <UButton color="neutral" variant="outline" :disabled="saving" @click="show = false">
+        关闭
+      </UButton>
+      <UButton color="neutral" variant="soft" :disabled="saving || model.isLoading.value" @click="test">
+        测试
+      </UButton>
+      <UButton color="primary" :loading="saving" :disabled="model.isLoading.value" @click="savePrompt">
+        保存
+      </UButton>
     </template>
   </UModal>
   <UModal
@@ -378,7 +456,7 @@ onMounted(() => {
                     <div class="test-content-list">
                       <div
                         v-for="item in testDataContent[row.key].slice(-3)"
-                        :key="item.time"
+                        :key="item.id"
                         class="test-content-item"
                       >
                         <div class="test-content-time">

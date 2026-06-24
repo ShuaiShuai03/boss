@@ -349,7 +349,10 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
           json: true,
         })
       ) {
-        throw new HelperConfigError('aiFiltering.model', 'AI筛选模型未配置')
+        throw new HelperConfigError(
+          'aiFiltering.model',
+          ctx.helper.chatModel.lastCreateAgentError || 'AI筛选模型未配置',
+        )
       }
       return async (ctx, data) => {
         const result = await ctx.helper.chatModel.chat('filtering', data)
@@ -451,7 +454,10 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         return
       }
       if (!ctx.helper.chatModel.createAgent(ctx.helper.conf.formData.aiGreeting, 'greetings')) {
-        throw new HelperConfigError('aiGreeting.model', 'AI招呼模型未配置')
+        throw new HelperConfigError(
+          'aiGreeting.model',
+          ctx.helper.chatModel.lastCreateAgentError || 'AI招呼模型未配置',
+        )
       }
       return async (ctx, data) => {
         const result = await ctx.helper.chatModel.chat('greetings', data)
