@@ -96,7 +96,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
         this.netConf.value = data
       })
       .catch((e) => {
-        logger.error('网络配置初始化失败', e)
+        logger.warn('网络配置初始化失败', e)
       })
     if (!this.netConfTimer) {
       this.netConfTimer = setInterval(
@@ -106,7 +106,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
               this.netConf.value = data
             })
             .catch((e) => {
-              logger.error('网络配置刷新失败', e)
+              logger.warn('网络配置刷新失败', e)
             })
         },
         1000 * 60 * 5,
