@@ -39,7 +39,7 @@ watch(
       dynamicTitle?.stop()
     } else {
       dynamicTitle = watchEffect(() => {
-        title.value = `${todayData.success}/${formData.dailyLimit.value || formData.deliveryLimit.value} - 在线计算器`
+        title.value = `${todayData.success}/${formData.deliveryLimit.value} - 在线计算器`
       })
     }
   },

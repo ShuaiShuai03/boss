@@ -51,9 +51,19 @@ const cycle = computed(() => {
   return ans
 })
 
-const deliveryLimit = computed(() => {
-  return conf.formData.dailyLimit.value || conf.formData.deliveryLimit.value
+const batchLimit = computed(
+  () => ctx.workflow?.batchLimit.value ?? conf.formData.deliveryLimit.value,
+)
+const batchSubmitted = computed(() => ctx.workflow?.batchSubmitted.value ?? 0)
+const batchProgress = computed(() => {
+  if (!batchLimit.value) return 0
+  return Number(((batchSubmitted.value / batchLimit.value) * 100).toFixed(1))
 })
+
+function percent(value: number) {
+  if (!statistics.todayData.total) return '0.0'
+  return ((value / statistics.todayData.total) * 100).toFixed(1)
+}
 
 onMounted(() => {
   statistics.updateStatistics()
@@ -64,7 +74,7 @@ onMounted(() => {
   <div class="flex gap-2 flex-col">
     <Alert
       id="config-statistics"
-      description="数据并不完全准确，投递上限根据自身情况调整, 建议 120-140, boss限制最高150"
+      description="数据并不完全准确；每批投递数量只控制本插件单批暂停点，BOSS 平台限制由平台自身处理。"
       color="warning"
       show-icon
     />
@@ -78,34 +88,21 @@ onMounted(() => {
       <div data-help="统计当天岗位过滤的比例,被过滤/总数">
         <div class="text-sm text-gray-500">过滤比例：</div>
         <div class="text-2xl font-semibold">
-          {{
-            (
-              ((statistics.todayData.total - statistics.todayData.success) /
-                statistics.todayData.total) *
-              deliveryLimit
-            ).toFixed(1)
-          }}
+          {{ percent(statistics.todayData.total - statistics.todayData.success) }}
           <span class="text-sm text-gray-400">%</span>
         </div>
       </div>
       <div data-help="统计当天刷到了多少处理过的岗位,重复/总数">
         <div class="text-sm text-gray-500">重复比例：</div>
         <div class="text-2xl font-semibold">
-          {{
-            ((statistics.todayData.repeat / statistics.todayData.total) * deliveryLimit).toFixed(1)
-          }}
+          {{ percent(statistics.todayData.repeat) }}
           <span class="text-sm text-gray-400">%</span>
         </div>
       </div>
       <div data-help="统计当天岗位中的活跃情况,不活跃/总数">
         <div class="text-sm text-gray-500">活跃比例：</div>
         <div class="text-2xl font-semibold">
-          {{
-            (
-              (statistics.todayData.activityFilter / statistics.todayData.total) *
-              deliveryLimit
-            ).toFixed(1)
-          }}
+          {{ percent(statistics.todayData.activityFilter) }}
           <span class="text-sm text-gray-400">%</span>
         </div>
       </div>
@@ -161,10 +158,11 @@ onMounted(() => {
         </UButton>
       </UFieldGroup>
       <UProgress
-        data-help="我会统计当天脚本投递的数量,该记录并不准确"
+        data-help="本批成功投递进度，达到每批投递数量后会暂停"
         class="flex-1"
-        :value="Number(((statistics.todayData.success / deliveryLimit) * 100).toFixed(1))"
+        :value="batchProgress"
       />
+      <span class="text-sm text-gray-500">{{ batchSubmitted }}/{{ batchLimit }}</span>
     </div>
   </div>
 </template>

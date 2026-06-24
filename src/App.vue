@@ -14,12 +14,10 @@ import Logs from '@/components/Tabs/Logs.vue'
 import Statistics from '@/components/Tabs/Statistics.vue'
 import { useConf, appearanceConf } from '@/composables/conf'
 import { useModel } from '@/composables/useModel'
-import { useStatistics } from '@/composables/useStatistics'
 
 import { useHelper, VITE_VERSION } from './composables/useHelper'
 
 const model = useModel()
-const { todayData } = useStatistics()
 const conf = useConf()
 const helper = useHelper()
 
@@ -110,8 +108,9 @@ const updateOverlay = () => {
 const { pause, resume } = useRafFn(updateOverlay, { immediate: false })
 
 const chatOpen = ref(appearanceConf.value.defaultShowChatBox)
-const dailyLimit = computed(
-  () => conf.formData.dailyLimit.value || conf.formData.deliveryLimit.value,
+const batchSubmitted = computed(() => helper.workflow?.batchSubmitted.value ?? 0)
+const batchLimit = computed(
+  () => helper.workflow?.batchLimit.value ?? conf.formData.deliveryLimit.value,
 )
 
 onMounted(async () => {
@@ -192,8 +191,8 @@ function onPointerMove(ev: PointerEvent) {
                 v{{ VITE_VERSION }} {{ isDot ? ' 有更新' : '' }}
               </UButton>
             </UChip>
-            <span v-if="todayData.total > 0" style="margin-right: 15px">
-              今日投递: {{ todayData.success }}/{{ dailyLimit }}
+            <span v-if="helper.workflow" style="margin-right: 15px">
+              本批投递: {{ batchSubmitted }}/{{ batchLimit }}
             </span>
             <span v-if="helper.workflow && helper.workflow.total.value > 0">
               当前页面处理: {{ helper.workflow.current.value + 1 }}/{{

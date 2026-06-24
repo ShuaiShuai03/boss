@@ -508,14 +508,12 @@ function gotoAmapDevSetting() {
         >
           清空缓存
         </UButton>
-        <UFormField v-if="conf.configLevel.intermediate" :label="formInfoData.dailyLimit.label">
-          <UInputNumber
-            v-bind="formInfoData.dailyLimit"
-            v-model="conf.formData.dailyLimit.value"
-            :min="1"
-            :max="155"
-            :step="10"
-          />
+        <UFormField
+          v-if="conf.configLevel.intermediate"
+          :label="formInfoData.deliveryLimit.label"
+          :data-help="formInfoData.deliveryLimit['data-help']"
+        >
+          <UInputNumber v-model="conf.formData.deliveryLimit.value" :min="1" :max="155" :step="1" />
         </UFormField>
         <UFormField
           v-if="conf.configLevel.intermediate"

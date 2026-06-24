@@ -10,6 +10,7 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel/test'
+import { logger } from '@/utils/logger'
 
 import { initNetConf, NetConf } from './netConf'
 import { Log, JobData, LogData } from './type'
@@ -50,6 +51,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
         const message = msg ?? (err ? err.message : undefined)
         this._logs.value.push({
           job,
+          time: new Date().toLocaleString(),
           title: job.jobName,
           state,
           state_name: err?.name ?? '投递成功',
@@ -59,6 +61,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
       },
       info: (title: string, message: string) => {
         this._logs.value.push({
+          time: new Date().toLocaleString(),
           title,
           state: 'info',
           state_name: '消息',
@@ -88,15 +91,23 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     avatar: string
   }
   initNetConf() {
-    initNetConf().then((data) => {
-      this.netConf.value = data
-    })
+    void initNetConf()
+      .then((data) => {
+        this.netConf.value = data
+      })
+      .catch((e) => {
+        logger.error('网络配置初始化失败', e)
+      })
     if (!this.netConfTimer) {
       this.netConfTimer = setInterval(
         () => {
-          initNetConf().then((data) => {
-            this.netConf.value = data
-          })
+          void initNetConf()
+            .then((data) => {
+              this.netConf.value = data
+            })
+            .catch((e) => {
+              logger.error('网络配置刷新失败', e)
+            })
         },
         1000 * 60 * 5,
       )

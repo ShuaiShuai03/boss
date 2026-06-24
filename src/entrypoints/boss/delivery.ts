@@ -2,7 +2,7 @@ import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
 
 import { BossHelperCtx } from '.'
-import { sendPublishReq } from './requests'
+import { requestDetail, sendPublishReq } from './requests'
 import { BossZpJobItemData, BossZpDetailData } from './types'
 
 export type BoosJobData = {
@@ -11,6 +11,63 @@ export type BoosJobData = {
 }
 
 const tasks = new TaskRegistry<BossHelperCtx, BoosJobData>()
+
+function detailMatchesJob(detail: BossZpDetailData | undefined, job: BossZpJobItemData) {
+  return (
+    detail != null &&
+    (detail.lid === job.lid ||
+      detail.jobInfo.encryptId === job.encryptJobId ||
+      detail.securityId === job.securityId)
+  )
+}
+
+async function waitForPageDetail(
+  helper: BossHelperCtx,
+  job: BossZpJobItemData,
+  timeoutMs = 8000,
+): Promise<BossZpDetailData> {
+  return new Promise<BossZpDetailData>((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let interval: ReturnType<typeof setInterval> | undefined
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout)
+      if (interval) clearInterval(interval)
+    }
+
+    timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error('页面岗位详情获取超时'))
+    }, timeoutMs)
+    interval = setInterval(() => {
+      if (detailMatchesJob(helper._jobDetail.value, job)) {
+        cleanup()
+        resolve(helper._jobDetail.value!)
+      }
+    }, 100)
+  })
+}
+
+async function requestDetailFallback(job: BossZpJobItemData): Promise<BossZpDetailData> {
+  const lids = Array.from(new Set([job.lid, job.encryptJobId].filter(Boolean)))
+  const errors: string[] = []
+
+  for (const lid of lids) {
+    try {
+      const res = await requestDetail({
+        securityId: job.securityId,
+        lid,
+      })
+      if (res.code === 0 && res.zpData) {
+        return res.zpData
+      }
+      errors.push(`${lid}: ${res.message || `code=${res.code}`}`)
+    } catch (error) {
+      errors.push(`${lid}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  throw new Error(`接口岗位详情获取失败: ${errors.join('; ')}`)
+}
 
 export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   defineTaskHandler(
@@ -36,34 +93,13 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   defineTaskHandler(
     '岗位详情获取',
     () => async (ctx, job) => {
-      // const detail = await requestDetail({
-      //   securityId: job.rawData.jobitem.securityId,
-      //   lid: job.rawData.jobitem.encryptJobId,
-      // }).then((r) => r.zpData)
-
       ctx.helper._clickJobCardAction(job.rawData.jobitem)
-      const detail = await new Promise<BossZpDetailData>((resolve, reject) => {
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        let interval: ReturnType<typeof setInterval> | undefined
-        const cleanup = () => {
-          if (timeout) clearTimeout(timeout)
-          if (interval) clearInterval(interval)
-        }
-
-        timeout = setTimeout(() => {
-          cleanup()
-          reject(new Error('bossZpDetailData获取超时'))
-        }, 1000 * 60)
-        interval = setInterval(() => {
-          if (
-            ctx.helper._jobDetail.value &&
-            ctx.helper._jobDetail.value.lid === job.rawData.jobitem.lid
-          ) {
-            cleanup()
-            resolve(ctx.helper._jobDetail.value)
-          }
-        }, 100)
-      })
+      const detail = await waitForPageDetail(ctx.helper, job.rawData.jobitem).catch(
+        async (pageError) => {
+          logger.warn('页面岗位详情获取失败，尝试接口获取', pageError)
+          return requestDetailFallback(job.rawData.jobitem)
+        },
+      )
 
       job.rawData.detail = detail
       job.jobData = {

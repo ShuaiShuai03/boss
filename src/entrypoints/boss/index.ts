@@ -140,6 +140,15 @@ function normalizeMessageContent(msg: UserContent): string {
   return String(msg ?? '').trim()
 }
 
+async function waitForJobPageChange(changed: () => boolean, timeoutMs = 10000, intervalMs = 250) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (changed()) return true
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  return changed()
+}
+
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}> {
   _page = ref({ page: 1, pageSize: 15 })
   _pageHasMore = ref(true)
@@ -197,23 +206,36 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
 
   async loadMoreJob(delay: Promise<any>): Promise<boolean> {
     try {
+      if (!this._pageHasMore.value) {
+        this.logs.info('无更多岗位', 'BOSS 页面 hasMore=false')
+        return false
+      }
       const oldLen = this._jobList.value.length
+      const oldPage = this._page.value.page
       const oldFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
 
-      this._pageChange(this._page.value.page + 1)
+      this.logs.info('开始翻页', `从第 ${oldPage} 页请求下一页`)
+      this._pageChange(oldPage + 1)
+      const changed = await waitForJobPageChange(() => {
+        const currentFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
+        return this._page.value.page !== oldPage || oldFirstJobId !== currentFirstJobId
+      })
       await delay
       const currentFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
       if (
         (location.href.includes('/web/geek/job-recommend') ||
           location.href.includes('/web/geek/jobs')) &&
+        !changed &&
         oldLen === this._jobList.value.length &&
         oldFirstJobId === currentFirstJobId
       ) {
         logger.error('翻页: 内容无变化')
+        this.logs.info('翻页失败', 'BOSS 页面内容无变化')
         return false
       }
     } catch (err) {
       logger.error('翻页: 下一页错误', err)
+      this.logs.info('翻页失败', err instanceof Error ? err.message : String(err))
       return false
     }
     return true
@@ -314,7 +336,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async _initJobList() {
-    useHookVueData(
+    await useHookVueData(
       '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
       'jobList',
       this._jobList,
@@ -427,7 +449,9 @@ export default defineUnlistedScript(async () => {
       params: {}
       fullPath: string
     }) => {
-      bossHelpCtx.onMount(to.path)
+      void bossHelpCtx.onMount(to.path).catch((e) => {
+        logger.error('页面切换初始化失败', e)
+      })
     },
   )
 

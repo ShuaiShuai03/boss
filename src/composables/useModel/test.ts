@@ -12,6 +12,7 @@ import { ShallowReactive } from 'vue'
 
 import { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
+import { normalizeExtensionContextError } from '@/utils/extension'
 
 import { ModelConf } from '.'
 import { WorkflowData } from '../useApplying/type'
@@ -302,12 +303,15 @@ ${data.jobData.jobDescription}`,
     } catch (e) {
       state.status = 'error'
       const message = e instanceof Error ? e.message : String(e)
+      const extensionError = normalizeExtensionContextError(e)
       const error =
-        e instanceof DOMException && e.name === 'TimeoutError'
-          ? new Error('AI 请求超时', { cause: e })
-          : /timeout|timed out|aborted/i.test(message)
+        extensionError instanceof Error && extensionError !== e
+          ? extensionError
+          : e instanceof DOMException && e.name === 'TimeoutError'
             ? new Error('AI 请求超时', { cause: e })
-            : e
+            : /timeout|timed out|aborted/i.test(message)
+              ? new Error('AI 请求超时', { cause: e })
+              : e
       state.error = error as Error
       logger.error('Error during chat generation', e)
       throw error

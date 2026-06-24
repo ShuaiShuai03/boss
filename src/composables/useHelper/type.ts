@@ -90,7 +90,7 @@ export type JobData = JobBaseData & {
 }
 
 export interface LogData {
-  jobData: JobData
+  jobData?: JobData
   el?: Element
   amap?: {
     geocode?: Awaited<ReturnType<typeof amapGeocode>>
@@ -100,6 +100,12 @@ export interface LogData {
   message?: string
   state?: string
   err?: string
+  error?: {
+    name?: string
+    message: string
+    stack?: string
+  }
+  summary?: string
   aiFilteringQ?: string
   aiFilteringR?: string | null
   aiFilteringAjson?: object
@@ -107,12 +113,17 @@ export interface LogData {
   aiGreetingQ?: string
   aiGreetingR?: string | null
   aiGreetingA?: string
+  aiReplyInput?: string
+  aiReplyQ?: string
+  aiReplyR?: string | null
+  aiReplyA?: string
 }
 
 type logState = 'info' | 'success' | 'warning' | 'danger'
 
 export interface Log {
   job?: JobData
+  time?: string
   title: string // 标题
   state: logState // 信息,成功,过滤,出错
   state_name: string // 标签文本

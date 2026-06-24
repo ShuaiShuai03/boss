@@ -7,6 +7,10 @@ import type { ConfigLevel, FormData } from '@/types/formData'
 import deepmerge, { jsonClone } from '@/utils/deepmerge'
 import { exportJson, importJson } from '@/utils/jsonImportExport'
 import { logger } from '@/utils/logger'
+import {
+  EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
+  isExtensionContextInvalidated,
+} from '@/utils/extension'
 import { TimeoutError, withTimeout } from '@/utils/promise'
 
 import { defaultFormData } from './info'
@@ -16,6 +20,10 @@ export * from './info'
 const formDataPresetKey = 'local:FormDataPrese'
 const formDataPresetsKey = 'local:FormDataPreses'
 const CONF_SAVE_TIMEOUT_MS = 10000
+
+function createDefaultFormData() {
+  return jsonClone(defaultFormData)
+}
 
 export const appearanceConf = useStorageAsync(
   'appearance-conf',
@@ -35,7 +43,7 @@ export const appearanceConf = useStorageAsync(
   { mergeDefaults: true },
 )
 const isLoading = ref(true)
-const formData: FormData = reactive(defaultFormData)
+const formData: FormData = reactive(createDefaultFormData())
 const formDataPreset = ref('default')
 const isSaving = ref(false)
 let savingPromise: Promise<void> | null = null
@@ -92,7 +100,7 @@ const FROM_VERSION: [string, (from: Partial<FormData>) => Partial<FormData>][] =
         from.aiFiltering = {
           ...defaultFormData.aiFiltering,
           ...from.aiFiltering,
-          prompt: defaultFormData.aiFiltering.prompt,
+          prompt: jsonClone(defaultFormData.aiFiltering.prompt),
         }
       }
       if (from.aiGreeting?.prompt) {
@@ -108,7 +116,7 @@ const FROM_VERSION: [string, (from: Partial<FormData>) => Partial<FormData>][] =
         from.aiGreeting = {
           ...defaultFormData.aiGreeting,
           ...from.aiGreeting,
-          prompt: defaultFormData.aiGreeting.prompt,
+          prompt: jsonClone(defaultFormData.aiGreeting.prompt),
         }
       }
       if (from.jobAddress) {
@@ -145,10 +153,10 @@ export const useConf = () => {
     from.dailyLimit ??= {
       value: from.deliveryLimit?.value ?? defaultFormData.dailyLimit.value,
     }
-    from.autoApplyEnabled ??= defaultFormData.autoApplyEnabled
-    from.autoGreetingEnabled ??= defaultFormData.autoGreetingEnabled
-    from.actionDelayMs ??= defaultFormData.actionDelayMs
-    from.maxConsecutiveFailures ??= defaultFormData.maxConsecutiveFailures
+    from.autoApplyEnabled ??= jsonClone(defaultFormData.autoApplyEnabled)
+    from.autoGreetingEnabled ??= jsonClone(defaultFormData.autoGreetingEnabled)
+    from.actionDelayMs ??= jsonClone(defaultFormData.actionDelayMs)
+    from.maxConsecutiveFailures ??= jsonClone(defaultFormData.maxConsecutiveFailures)
     return from
   }
 
@@ -167,7 +175,7 @@ export const useConf = () => {
 
       let from = await counter.storageGet<Partial<FormData>>(formDataKey(), {})
       from = (await formDataHandler(from)) ?? from
-      const data = deepmerge<FormData>(defaultFormData, from)
+      const data = deepmerge<FormData>(createDefaultFormData(), from)
       Object.assign(formData, data)
     } catch (e) {
       toast.add({
@@ -178,11 +186,6 @@ export const useConf = () => {
     } finally {
       isLoading.value = false
     }
-  }
-
-  function isExtensionContextInvalidated(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    return message.toLowerCase().includes('extension context invalidated')
   }
 
   async function confSaving() {
@@ -213,7 +216,7 @@ export const useConf = () => {
           error instanceof TimeoutError
             ? error.message
             : isExtensionContextInvalidated(error)
-              ? '扩展已重新加载，请刷新当前 BOSS 页面后再保存配置'
+              ? EXTENSION_CONTEXT_INVALIDATED_MESSAGE
               : `保存失败: ${error.message}`
         toast.add({
           title,
@@ -231,7 +234,7 @@ export const useConf = () => {
   }
 
   async function confReload() {
-    const v = deepmerge<FormData>(defaultFormData, await counter.storageGet(formDataKey(), {}))
+    const v = deepmerge<FormData>(createDefaultFormData(), await counter.storageGet(formDataKey(), {}))
     deepmerge(formData, v, { clone: false })
     logger.debug('formData已重置')
     toast.add({
@@ -241,7 +244,10 @@ export const useConf = () => {
   }
 
   async function confExport() {
-    const data = deepmerge<FormData>(defaultFormData, await counter.storageGet(formDataKey(), {}))
+    const data = deepmerge<FormData>(
+      createDefaultFormData(),
+      await counter.storageGet(formDataKey(), {}),
+    )
     exportJson(data, '打招呼配置')
   }
 
@@ -262,7 +268,6 @@ export const useConf = () => {
         'deliveryLimit',
         'autoApplyEnabled',
         'autoGreetingEnabled',
-        'dailyLimit',
         'actionDelayMs',
         'maxConsecutiveFailures',
         'activityFilter',
@@ -275,7 +280,7 @@ export const useConf = () => {
         'delay',
       ].reduce(
         (result, key) => {
-          result[key] = defaultFormData[key as keyof FormData]
+          result[key] = jsonClone(defaultFormData[key as keyof FormData])
           return result
         },
         {} as Record<string, any>,
@@ -289,7 +294,7 @@ export const useConf = () => {
   }
 
   function confDelete() {
-    deepmerge(formData, defaultFormData)
+    deepmerge(formData, createDefaultFormData())
     logger.debug('formData已清空')
     toast.add({
       title: '配置清空成功, 不会自动保存, 请手动保存或重载恢复',
@@ -346,7 +351,7 @@ export const useConf = () => {
     isLoading.value = true
     try {
       formDataPreset.value = value
-      counter.storageSet(formDataPresetKey, value)
+      await counter.storageSet(formDataPresetKey, value)
       await init()
     } catch (e) {
       toast.add({

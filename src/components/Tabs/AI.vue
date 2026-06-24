@@ -18,9 +18,13 @@ const aiControlsDisabled = computed(
   () => conf.isLoading.value || model.isLoading.value || helper.workflow?.status.value === 'running',
 )
 
-function change(v: Partial<FormDataAi>) {
+async function change(v: Partial<FormDataAi>) {
   v.enable = !v.enable
-  conf.confSaving()
+  try {
+    await conf.confSaving()
+  } catch {
+    v.enable = !v.enable
+  }
 }
 </script>
 

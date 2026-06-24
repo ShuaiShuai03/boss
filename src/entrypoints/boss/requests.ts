@@ -73,7 +73,7 @@ export async function requestDetail(params: { securityId: string; lid: string })
 
   return fetch(url.toString(), {
     headers: { Zp_token: token },
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
   }).then((r) => r.json())
 }
 

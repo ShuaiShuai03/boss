@@ -1,194 +1,183 @@
 <script lang="tsx" setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
+import { useHelper, type Log } from '@/composables/useHelper'
 import { TableColumn } from '@nuxt/ui'
-import { useHelper,Log } from '@/composables/useHelper'
-const helper = useHelper()
 
-// const { filterData, dialogData } = useLog()
+const helper = useHelper()
 
 const dialogData = reactive<{ show: boolean; data?: Log }>({ show: false })
 
-const aiFilterActiveNames = ref('response')
-const aiGreetActiveNames = ref('response')
+const stateColor = {
+  info: 'info',
+  success: 'success',
+  warning: 'warning',
+  danger: 'error',
+} as const
+
+function openLog(log: Log) {
+  dialogData.show = true
+  dialogData.data = log
+}
+
+function formatJson(value: unknown) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
+const detailData = computed(() => dialogData.data?.data)
 
 const columns: TableColumn<Log>[] = [
   {
-    accessorKey: 'level',
-    header: '级别',
-    // width: 200,
+    accessorKey: 'time',
+    header: '时间',
+    cell: ({ row }) => row.original.time ?? '-',
+  },
+  {
+    accessorKey: 'title',
+    header: '对象/岗位',
     cell: ({ row }) => (
-      <UButton
-        onClick={() => {
-          dialogData.show = true
-          dialogData.data = row.original
-        }}
-      >
-        {row.getValue('title')}
+      <UButton color="neutral" variant="link" class="px-0" onClick={() => openLog(row.original)}>
+        {row.original.title}
       </UButton>
     ),
   },
   {
-    accessorKey: 'state',
-    header: '内容',
-    // width: 150,
-    // align: 'center',
+    accessorKey: 'state_name',
+    header: '结果',
     cell: ({ row }) => (
-      <UBadge color={row.getValue('state') ?? 'primary'}>{row.getValue('state_name')}</UBadge>
+      <UBadge color={stateColor[row.original.state]}>{row.original.state_name}</UBadge>
     ),
-    // headerCellRenderer: (props: HeaderCellRendererParams<log>) => {
-    //   return (
-    //     <div class="flex items-center justify-center">
-    //       <span class="mr-2 text-xs">{props.column.title}</span>
-    //       <ElPopover trigger="click" {...{ width: 200 }}>
-    //         {{
-    //           default: () => (
-    //             <div class="filter-wrapper">
-    //               <ElCheckboxGroup v-model={filterStatus.value}>
-    //                 {stateNames.map((item) => (
-    //                   <ElCheckbox value={item[1]}>
-    //                     <ElTag type={item[0]}>{item[1]}</ElTag>
-    //                   </ElCheckbox>
-    //                 ))}
-    //               </ElCheckboxGroup>
-    //               <div class="el-table-v2__demo-filter">
-    //                 <ElButton
-    //                   text
-    //                   onClick={() => {
-    //                     filterStatus.value = stateNames
-    //                       .map((item) => item[1])
-    //                       .filter((status) => !filterStatus.value.includes(status))
-    //                   }}
-    //                 >
-    //                   反选
-    //                 </ElButton>
-    //               </div>
-    //             </div>
-    //           ),
-    //           reference: () => (
-    //             <ElIcon class="cursor-pointer">
-    //               <svg
-    //                 class="icon"
-    //                 viewBox="0 0 1024 1024"
-    //                 version="1.1"
-    //                 xmlns="http://www.w3.org/2000/svg"
-    //                 p-id="2612"
-    //                 width="200"
-    //                 height="200"
-    //               >
-    //                 <path
-    //                   d="M608.241895 960.010751c-17.717453 0-31.994625-14.277171-31.994625-31.994625l0-479.919368c0-7.912649 2.92424-15.653284 8.256677-21.501764l208.82513-234.455233L230.498908 192.139761l209.169158 234.627247c5.160423 5.84848 8.084663 13.417101 8.084663 21.32975l0 288.811692 50.916177 41.111372c13.761129 11.180917 15.825298 31.306568 4.816395 45.067697s-31.306568 15.825298-45.067697 4.816395L395.632454 776.815723c-7.568621-6.020494-11.868974-15.309256-11.868974-24.942046L383.763481 460.137746 135.203091 181.302873c-8.428691-9.460776-10.492861-22.877877-5.332437-34.402822 5.160423-11.524945 16.685369-18.921552 29.242399-18.921552l706.289938 0c12.729044 0 24.081975 7.396607 29.242399 19.093566 5.160423 11.524945 2.92424 25.11406-5.504452 34.402822L640.236519 460.30976l0 467.706367C640.236519 945.73358 625.959348 960.010751 608.241895 960.010751z"
-    //                   fill="#575B66"
-    //                   p-id="2613"
-    //                 ></path>
-    //               </svg>
-    //             </ElIcon>
-    //           ),
-    //         }}
-    //       </ElPopover>
-    //     </div>
-    //   )
-    // },
   },
-  // {
-  //   accessorKey: 'message',
-  //   header: '信息',
-  //   // width: 360,
-  //   // minWidth: 360,
-  //   // align: 'left',
-  // },
+  {
+    accessorKey: 'message',
+    header: '原因/摘要',
+    cell: ({ row }) => <span class="line-clamp-2">{row.original.message ?? '-'}</span>,
+  },
 ]
-
-// TODO: 自动滚动底部
-// watchEffect(() => {
-//   tableRef.value?.scrollToRow(data.value.length - 1);
-// });
 </script>
 
 <template>
-  <h1>维护当中...</h1>
-  <UTable ref="tableRef" :columns="columns" :data="helper.logs.value" :height="360" />
-  <UModal v-model:open="dialogData.show" title="日志详情">
-    <template #body>
-      <div class="log-detail">
-        <div class="log-detail-left">
-          <JobCard v-if="dialogData.data?.job" :job="dialogData.data.job" />
-        </div>
-        <div class="log-detail-right">
-          <UTabs class="demo-tabs">
-            <UTabsList>
-              <UTabsTrigger v-if="dialogData.data?.data?.aiFilteringQ" value="first"
-                >AI过滤</UTabsTrigger
-              >
-              <UTabsTrigger v-if="dialogData.data?.data?.aiGreetingQ" value="second"
-                >AI打招呼</UTabsTrigger
-              >
-              <UTabsTrigger v-if="dialogData.data?.data?.err" value="fourth">错误信息</UTabsTrigger>
-            </UTabsList>
-            <UTabsContent v-if="dialogData.data?.data?.aiFilteringQ" value="first">
-              <UAccordion v-model="aiFilterActiveNames" type="single" collapsible>
+  <div class="flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <div class="text-sm text-gray-500">共 {{ helper.logs.value.length }} 条日志</div>
+      <UButton
+        color="warning"
+        variant="outline"
+        size="sm"
+        :disabled="helper.logs.value.length === 0"
+        @click="helper.logs.clear()"
+      >
+        清空日志
+      </UButton>
+    </div>
+
+    <div v-if="helper.logs.value.length === 0" class="empty-state">
+      暂无日志。开始投递后会显示批次、翻页、岗位处理和错误详情。
+    </div>
+    <UTable v-else ref="tableRef" :columns="columns" :data="helper.logs.value" :height="420" />
+
+    <UModal v-model:open="dialogData.show" title="日志详情" :ui="{ content: 'sm:max-w-4xl' }">
+      <template #body>
+        <div class="log-detail">
+          <div v-if="dialogData.data?.job" class="log-detail-left">
+            <JobCard :job="dialogData.data.job" />
+          </div>
+          <div class="log-detail-right">
+            <section class="log-section">
+              <h4>摘要</h4>
+              <div class="detail-grid">
+                <span>时间</span>
+                <strong>{{ dialogData.data?.time ?? '-' }}</strong>
+                <span>结果</span>
+                <strong>{{ dialogData.data?.state_name }}</strong>
+                <span>原因</span>
+                <strong>{{ dialogData.data?.message ?? detailData?.summary ?? '-' }}</strong>
+              </div>
+            </section>
+
+            <section v-if="detailData?.aiFilteringQ" class="log-section">
+              <h4>AI过滤</h4>
+              <UAccordion type="single" collapsible default-value="response">
                 <UAccordionItem value="prompt" title="Prompt">
-                  <div class="ai-text">{{ dialogData.data.data.aiFilteringQ }}</div>
+                  <pre class="ai-text">{{ detailData.aiFilteringQ }}</pre>
                 </UAccordionItem>
-                <UAccordionItem
-                  v-if="dialogData.data.data.aiFilteringR"
-                  value="thinking"
-                  title="思考过程"
-                >
-                  <div class="ai-text">{{ dialogData.data.data.aiFilteringR }}</div>
+                <UAccordionItem v-if="detailData.aiFilteringR" value="thinking" title="思考过程">
+                  <pre class="ai-text">{{ detailData.aiFilteringR }}</pre>
                 </UAccordionItem>
-                <UAccordionItem value="response" title="响应" class="active">
-                  <div class="ai-text">{{ dialogData.data.data.aiFilteringAtext }}</div>
+                <UAccordionItem value="response" title="响应">
+                  <pre class="ai-text">{{ detailData.aiFilteringAtext }}</pre>
                 </UAccordionItem>
               </UAccordion>
-            </UTabsContent>
-            <UTabsContent v-if="dialogData.data?.data?.aiGreetingQ" value="second">
-              <UAccordion v-model="aiGreetActiveNames" type="single" collapsible>
+            </section>
+
+            <section v-if="detailData?.aiGreetingQ" class="log-section">
+              <h4>AI招呼语</h4>
+              <UAccordion type="single" collapsible default-value="response">
                 <UAccordionItem value="prompt" title="Prompt">
-                  <div class="ai-text">{{ dialogData.data.data.aiGreetingQ }}</div>
+                  <pre class="ai-text">{{ detailData.aiGreetingQ }}</pre>
                 </UAccordionItem>
-                <UAccordionItem
-                  v-if="dialogData.data.data.aiGreetingR"
-                  value="thinking"
-                  title="思考过程"
-                >
-                  <div class="ai-text">{{ dialogData.data.data.aiGreetingR }}</div>
+                <UAccordionItem v-if="detailData.aiGreetingR" value="thinking" title="思考过程">
+                  <pre class="ai-text">{{ detailData.aiGreetingR }}</pre>
                 </UAccordionItem>
-                <UAccordionItem value="response" title="响应" class="active">
-                  <div class="ai-text">{{ dialogData.data.data.aiGreetingA }}</div>
+                <UAccordionItem value="response" title="响应">
+                  <pre class="ai-text">{{ detailData.aiGreetingA }}</pre>
                 </UAccordionItem>
               </UAccordion>
-            </UTabsContent>
-            <UTabsContent v-if="dialogData.data?.data?.err" value="fourth">
-              <div>{{ dialogData.data.data.err }}</div>
-              <div v-if="dialogData.data?.data?.message">{{ dialogData.data.data.message }}</div>
-            </UTabsContent>
-          </UTabs>
+            </section>
+
+            <section v-if="detailData?.aiReplyQ" class="log-section">
+              <h4>AI回复</h4>
+              <UAccordion type="single" collapsible default-value="response">
+                <UAccordionItem value="input" title="上下文">
+                  <pre class="ai-text">{{ detailData.aiReplyInput }}</pre>
+                </UAccordionItem>
+                <UAccordionItem value="prompt" title="Prompt">
+                  <pre class="ai-text">{{ detailData.aiReplyQ }}</pre>
+                </UAccordionItem>
+                <UAccordionItem v-if="detailData.aiReplyR" value="thinking" title="思考过程">
+                  <pre class="ai-text">{{ detailData.aiReplyR }}</pre>
+                </UAccordionItem>
+                <UAccordionItem value="response" title="响应">
+                  <pre class="ai-text">{{ detailData.aiReplyA }}</pre>
+                </UAccordionItem>
+              </UAccordion>
+            </section>
+
+            <section v-if="detailData?.err || detailData?.error" class="log-section">
+              <h4>错误信息</h4>
+              <pre class="ai-text">{{ detailData.err ?? formatJson(detailData.error) }}</pre>
+            </section>
+
+            <section v-if="detailData" class="log-section">
+              <h4>原始详情</h4>
+              <pre class="ai-text">{{ formatJson(detailData) }}</pre>
+            </section>
+          </div>
         </div>
-      </div>
-    </template>
-    <template #footer>
-      <UButton @click="dialogData.show = false"> 关闭 </UButton>
-    </template>
-  </UModal>
+      </template>
+      <template #footer>
+        <UButton @click="dialogData.show = false">关闭</UButton>
+      </template>
+    </UModal>
+  </div>
 </template>
 
 <style lang="scss">
-.ehp-table-v2__row-depth-0 {
-  height: 50px;
-}
-
-.ehp-table-v2__cell-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.empty-state {
+  padding: 32px;
+  text-align: center;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
 }
 
 .log-detail {
   display: flex;
   gap: 20px;
-  min-height: 500px;
+  min-height: 420px;
 
   &-left {
     flex: 0 0 350px;
@@ -200,6 +189,16 @@ const columns: TableColumn<Log>[] = [
   }
 }
 
+.detail-grid {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px 12px;
+
+  span {
+    color: #6b7280;
+  }
+}
+
 .log-section {
   padding: 16px;
   background: #f5f7fa;
@@ -208,18 +207,7 @@ const columns: TableColumn<Log>[] = [
 
   h4 {
     margin: 0 0 12px;
-    color: #606266;
-  }
-}
-
-.ai-qa {
-  .ai-q {
-    color: #606266;
-    margin-bottom: 8px;
-  }
-  .ai-a {
-    color: #303133;
-    white-space: pre-wrap;
+    color: #374151;
   }
 }
 
@@ -228,11 +216,6 @@ const columns: TableColumn<Log>[] = [
   user-select: text;
   padding: 8px;
   line-height: 1.5;
-}
-
-.ehp-collapse-item.active {
-  .ehp-collapse-item__header {
-    border-bottom-color: transparent;
-  }
+  overflow-x: auto;
 }
 </style>

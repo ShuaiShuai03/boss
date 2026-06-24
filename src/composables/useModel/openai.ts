@@ -2,6 +2,8 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { LanguageModelV3 } from '@ai-sdk/provider'
 
 import { counter } from '@/message'
+import { EXTENSION_CONTEXT_INVALIDATED_MESSAGE, normalizeExtensionContextError } from '@/utils/extension'
+import { withTimeout } from '@/utils/promise'
 
 import { desc, getEffectiveAiTimeoutMs, other } from './common'
 import {
@@ -189,21 +191,34 @@ function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
   return headers
 }
 
+async function assertBackgroundBridgeReady() {
+  try {
+    await withTimeout(counter.backgroundTest('success'), 3000, EXTENSION_CONTEXT_INVALIDATED_MESSAGE)
+  } catch (error) {
+    throw normalizeExtensionContextError(error)
+  }
+}
+
 async function fetchModels(
   candidate: ModelEndpointCandidate,
   conf: Pick<OpenaiLLMConf, 'api_key' | 'advanced'>,
 ) {
-  const res = await counter.rawRequest({
-    url: candidate.modelsUrl,
-    timeout: 30000,
-    data: {
-      method: 'GET',
-      headers: {
-        ...(conf.advanced?.extra_headers ?? {}),
-        Authorization: `Bearer ${conf.api_key}`,
+  await assertBackgroundBridgeReady()
+  const res = await counter
+    .rawRequest({
+      url: candidate.modelsUrl,
+      timeout: 30000,
+      data: {
+        method: 'GET',
+        headers: {
+          ...(conf.advanced?.extra_headers ?? {}),
+          Authorization: `Bearer ${conf.api_key}`,
+        },
       },
-    },
-  })
+    })
+    .catch((error) => {
+      throw normalizeExtensionContextError(error)
+    })
 
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`HTTP ${res.status}: ${res.body}`)
@@ -266,18 +281,23 @@ async function backgroundFetch(
   init: RequestInit | undefined,
   timeout: number,
 ) {
+  await assertBackgroundBridgeReady()
   const request = new Request(input, init)
   const body = await request.text()
   const canHaveBody = !['GET', 'HEAD'].includes(request.method.toUpperCase())
-  const res = await counter.rawRequest({
-    url: request.url,
-    timeout,
-    data: {
-      method: request.method,
-      headers: normalizeHeaders(request.headers),
-      body: canHaveBody ? body : undefined,
-    },
-  })
+  const res = await counter
+    .rawRequest({
+      url: request.url,
+      timeout,
+      data: {
+        method: request.method,
+        headers: normalizeHeaders(request.headers),
+        body: canHaveBody ? body : undefined,
+      },
+    })
+    .catch((error) => {
+      throw normalizeExtensionContextError(error)
+    })
 
   return new Response(res.body, {
     status: res.status,
