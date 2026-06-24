@@ -8,6 +8,7 @@ import deepmerge, { jsonClone } from '@/utils/deepmerge'
 import { exportJson, importJson } from '@/utils/jsonImportExport'
 import { logger } from '@/utils/logger'
 import {
+  EXTENSION_CONTENT_BRIDGE_UNAVAILABLE_MESSAGE,
   EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
   isExtensionContextInvalidated,
 } from '@/utils/extension'
@@ -20,9 +21,18 @@ export * from './info'
 const formDataPresetKey = 'local:FormDataPrese'
 const formDataPresetsKey = 'local:FormDataPreses'
 const CONF_SAVE_TIMEOUT_MS = 10000
+const CONF_BRIDGE_TIMEOUT_MS = 1500
 
 function createDefaultFormData() {
   return jsonClone(defaultFormData)
+}
+
+async function assertContentBridgeReady() {
+  await withTimeout(
+    counter.contentScriptTest('success'),
+    CONF_BRIDGE_TIMEOUT_MS,
+    EXTENSION_CONTENT_BRIDGE_UNAVAILABLE_MESSAGE,
+  )
 }
 
 export const appearanceConf = useStorageAsync(
@@ -196,6 +206,7 @@ export const useConf = () => {
     savingPromise = (async () => {
       const v = jsonClone(formData)
       try {
+        await assertContentBridgeReady()
         await withTimeout(
           (async () => {
             await counter.storageSet(formDataKey(), v)
