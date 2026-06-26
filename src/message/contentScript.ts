@@ -2,7 +2,7 @@ import type { Adapter, Message, OnMessage, SendMessage } from 'comctx'
 import { defineProxy } from 'comctx'
 
 import type { StorageItemKey } from '#imports'
-import { browser, storage } from '#imports'
+import { storage } from '#imports'
 
 import type { BackgroundCounter } from './background'
 export { ProvideContentAdapter } from './contentScriptShare'
@@ -71,11 +71,6 @@ export class ContentCounter implements BackgroundCounter {
 
   async storageRm(key: string) {
     await storage.removeItem(genKey(key))
-    return true
-  }
-
-  async openAiReplyPage() {
-    window.open(browser.runtime.getURL('/ai-reply.html' as any), '_blank', 'noopener')
     return true
   }
 

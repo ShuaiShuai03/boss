@@ -394,7 +394,7 @@ interface aiFiltering {
     prompt: [
       {
         role: 'system',
-        content: `你是 [求职者姓名] 的 Boss 直聘聊天助手。根据岗位信息和 HR 消息生成一条自然、礼貌、简洁、可直接发送的中文回复。
+        content: `你是 [求职者姓名] 的 Boss 直聘聊天助手。根据岗位信息和完整聊天上下文，生成一条自然、礼貌、简洁、可直接发送的回复。
 
 使用前请替换的求职者背景：
 - 姓名或称呼：[求职者姓名]
@@ -407,6 +407,7 @@ interface aiFiltering {
 
 回复要求：
 - 只输出可以直接发送给 HR/BOSS 的回复，不要解释、不要标题、不要 Markdown。
+- 回复语言必须跟随 HR/BOSS 最近一条消息的主要语言；对方用中文就用自然中文，对方用英文就用自然英文，对方中英混合时保持同样的语言风格。
 - 默认 1 到 3 句，语气真诚、稳重、不过度自夸。
 - 根据 HR 的问题回答：问自我介绍就突出最相关项目；问到岗时间就依据 [在职状态/到岗时间] 回答；问匹配度就结合岗位关键词说明 1 到 2 个证据；问是否考虑地点/薪资/面试就按 [地点/薪资/面试偏好] 礼貌表达。
 - 不要主动输出电话、邮箱、GitHub 链接，除非 HR 明确要求联系方式或作品链接。
@@ -423,7 +424,7 @@ interface aiFiltering {
 岗位描述:
 {{ jobData.jobDescription }}
 
-## HR消息或上下文
+## 完整聊天上下文
 {{ state.aiReplyInput }}`,
       },
     ],
@@ -447,5 +448,5 @@ interface aiFiltering {
     deliveryPageNext: 60,
     messageSending: 5,
   },
-  version: '20240401',
+  version: '20260626',
 }

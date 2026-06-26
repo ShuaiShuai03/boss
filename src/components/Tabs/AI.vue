@@ -59,20 +59,6 @@ async function change(v: Partial<FormDataAi>) {
         "
         @change="change"
       />
-      <FormSwitch
-        :label="formInfoData.aiReply.label"
-        :data-help="formInfoData.aiReply['data-help']"
-        :data="conf.formData.aiReply"
-        :lock="aiControlsDisabled"
-        :disabled="aiControlsDisabled"
-        @show="
-          () => {
-            aiBox = 'aiReply'
-            aiBoxShow = true
-          }
-        "
-        @change="change"
-      />
       <!-- <formSwitch
       v-bind="formInfoData.record"
       :data="formData.record"

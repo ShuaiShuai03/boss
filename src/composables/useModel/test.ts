@@ -140,6 +140,54 @@ export class ChatModel {
     )
   }
 
+  ensureJobState(data: WorkflowData<any, any>) {
+    if (this.jobs.value.findIndex((j) => j === data.jobData.key) === -1) {
+      this.jobs.value.unshift(data.jobData.key)
+    }
+
+    if (!this.states.has(data.jobData.key)) {
+      const state = new VueChatState<Message>()
+      state.pushMessage({
+        id: this.generateId.jd(),
+        uiRole: 'jd',
+        role: 'system',
+        parts: [
+          {
+            type: 'text',
+            text: `## ${data.jobData.jobName ?? data.jobData.positionName} (${data.jobData.activeTime ? new Date(data.jobData.activeTime).toLocaleDateString() : data.jobData.activeTimeStr})
+### 薪资: ${data.jobData.salary ?? '面议'}
+### 公司: ${data.jobData.brand.name}
+### 地址: ${data.jobData.address ?? data.jobData.city}
+### 学历: ${data.jobData.degreeName}
+
+${data.jobData.jobDescription}`,
+          },
+        ],
+        avatar: {
+          src: data.jobData.brand.logo ?? data.jobData.boss.avatar,
+          alt: data.jobData.brand.name ?? data.jobData.boss.name,
+        },
+      })
+      // @ts-ignore
+      this.states.set(data.jobData.key, state)
+    }
+
+    const state = this.states.get(data.jobData.key)
+    if (!state) {
+      throw new Error('消息列表未找到')
+    }
+    return state
+  }
+
+  pushJobMessage(data: WorkflowData<any, any>, message: Message) {
+    const state = this.ensureJobState(data)
+    if (state.messages.some((item) => item.id === message.id)) {
+      return false
+    }
+    state.pushMessage(message)
+    return true
+  }
+
   createAgent(
     model: FormDataAi,
     name: MessageRole,
@@ -189,45 +237,12 @@ export class ChatModel {
       throw new Error(`Agent ${agentName} not found`)
     }
 
-    if (this.jobs.value.findIndex((j) => j === data.jobData.key) === -1) {
-      this.jobs.value.unshift(data.jobData.key)
-    }
-
     const [agent, modelConf, model] = _agent
 
     const timeout = getEffectiveAiTimeoutMs(modelConf.data?.other?.timeout)
     const messages = renderMessages(model, data)
     const prompt = formatPrompt(messages)
-    if (!this.states.has(data.jobData.key)) {
-      const state = new VueChatState<Message>()
-      state.pushMessage({
-        id: this.generateId[agentName](),
-        uiRole: 'jd',
-        role: 'system',
-        parts: [
-          {
-            type: 'text',
-            text: `## ${data.jobData.jobName ?? data.jobData.positionName} (${data.jobData.activeTime ? new Date(data.jobData.activeTime).toLocaleDateString() : data.jobData.activeTimeStr})
-### 薪资: ${data.jobData.salary ?? '面议'}
-### 公司: ${data.jobData.brand.name}
-### 地址: ${data.jobData.address ?? data.jobData.city}
-### 学历: ${data.jobData.degreeName}
-
-${data.jobData.jobDescription}`,
-          },
-        ],
-        avatar: {
-          src: data.jobData.brand.logo ?? data.jobData.boss.avatar,
-          alt: data.jobData.brand.name ?? data.jobData.boss.name,
-        },
-      })
-      // @ts-ignore
-      this.states.set(data.jobData.key, state)
-    }
-    const state = this.states.get(data.jobData.key)
-    if (!state) {
-      throw new Error('消息列表未找到')
-    }
+    const state = this.ensureJobState(data)
     // msgs.pushMessage({
     //   id: this.generateId[agentName](),
     //   side: 'right',

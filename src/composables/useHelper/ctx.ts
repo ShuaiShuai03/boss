@@ -10,6 +10,7 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel/test'
+import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { logger } from '@/utils/logger'
 
 import { initNetConf, NetConf } from './netConf'
@@ -84,6 +85,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract onMount(): Promise<void>
   abstract start(): Promise<void>
   abstract sendMessage(jobKey: string, msg: UserContent): Promise<void>
+  abstract sendChatMessage(target: AiReplySendTarget): Promise<void>
   abstract get uid(): string
   abstract get userInfo(): {
     id: string

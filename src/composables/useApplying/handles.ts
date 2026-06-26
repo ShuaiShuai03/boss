@@ -1,9 +1,15 @@
 import { counter } from '@/message'
 import { renderTemplate } from '@/utils/ai'
 import { HelperContext } from '~/composables/useHelper'
+import {
+  AI_REPLY_DOM_MESSAGE_EVENT,
+  type AiReplyChatEventPayload,
+  type AiReplyPeer,
+  type AiReplyRealtimeMessage,
+} from '@/features/aiReply/types'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
-import { defineTaskHandler, JobStatus, TaskContext, TaskResult } from './type'
+import { defineTaskHandler, JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
 import {
   evaluateKeywordFilter,
   jobContentKeywordMatcher,
@@ -34,6 +40,58 @@ export class HelperConfigError {
 //   //   avatar: ctx.jobData.brandLogo,
 //   // })
 // }
+
+function aiReplyConversationId(peerUid: string, source?: number) {
+  return `boss-chat::${peerUid}::${source ?? 0}`
+}
+
+function dispatchAiReplyChatEvent(payload: AiReplyChatEventPayload) {
+  document.dispatchEvent(new CustomEvent(AI_REPLY_DOM_MESSAGE_EVENT, { detail: payload }))
+}
+
+function seedAiReplyFromGreeting<C extends HelperContext<C, T, S>, T, S>(
+  ctx: TaskContext<C, T, S>,
+  data: WorkflowData<T, S>,
+  text: string,
+) {
+  const bossData = data.state.bossData?.data
+  const peerUid = bossData?.bossId == null ? '' : String(bossData.bossId)
+  if (!peerUid) {
+    logger.warn('AI 回复会话初始化失败：缺少 Boss/HR 用户 ID', { jobKey: data.jobData.key })
+    return
+  }
+
+  const source = Number(bossData?.bossSource ?? 0)
+  const user: AiReplyPeer = {
+    uid: String(window._PAGE.uid ?? window._PAGE.userId ?? ctx.helper.uid),
+    name: ctx.helper.userInfo.name,
+    avatar: ctx.helper.userInfo.avatar,
+  }
+  const peer: AiReplyPeer = {
+    uid: peerUid,
+    name: data.jobData.boss.name,
+    avatar: data.jobData.boss.avatar,
+    company: data.jobData.brand.name,
+    source,
+  }
+  const message: AiReplyRealtimeMessage = {
+    id: `greeting:${data.jobData.key}:${Date.now()}`,
+    conversationId: aiReplyConversationId(peerUid, source),
+    direction: 'outgoing',
+    text,
+    timestamp: Date.now(),
+    sender: user,
+    recipient: peer,
+    peer,
+    job: data.jobData,
+  }
+
+  dispatchAiReplyChatEvent({
+    url: location.href,
+    user,
+    messages: [message],
+  })
+}
 
 function amapHandler<C extends HelperContext<C, T, S>, T, S>(
   ctx: TaskContext<C, T, S>,
@@ -465,6 +523,7 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
           return taskResult.skip('AI招呼语为空')
         }
         await ctx.helper.sendMessage(data.jobData.key, msg)
+        seedAiReplyFromGreeting(ctx, data, msg)
         return {
           status: 'success',
           msg: 'AI招呼已发送',

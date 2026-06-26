@@ -26,6 +26,7 @@ const saveError = ref('')
 const optimizing = ref(false)
 const optimizerInput = ref('')
 const optimizerError = ref('')
+const followUpReplyEditOpen = ref(false)
 
 const score = ref(10)
 
@@ -144,6 +145,23 @@ async function optimizeSystemPrompt() {
     })
   } finally {
     optimizing.value = false
+  }
+}
+
+async function saveAiReplyEnable(value: boolean | 'indeterminate') {
+  if (value === 'indeterminate') {
+    return
+  }
+  try {
+    conf.formData.aiReply.enable = value
+    await conf.confSaving()
+  } catch (err) {
+    conf.formData.aiReply.enable = !value
+    const message = err instanceof Error ? err.message : String(err)
+    toast.add({
+      title: message,
+      color: 'error',
+    })
   }
 }
 
@@ -435,6 +453,30 @@ watch(testDialog, (opened) => {
         </ULink>
         的提示词文档学习 ( 示例提示词写的并不好,欢迎AI大佬来提pr )
       </div>
+      <div v-if="data === 'aiGreeting'" class="flex items-center justify-between gap-4 border-y border-default py-3">
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-default">后续回复</div>
+          <p class="text-sm text-muted">
+            AI招呼语发送后，在对话侧栏根据完整聊天上下文生成可编辑回复草稿。
+          </p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <USwitch
+            :model-value="conf.formData.aiReply.enable"
+            :disabled="saving || conf.isLoading.value"
+            @update:model-value="saveAiReplyEnable"
+          />
+          <UButton
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-message-square-text"
+            :disabled="saving || conf.isLoading.value"
+            @click="followUpReplyEditOpen = true"
+          >
+            配置
+          </UButton>
+        </div>
+      </div>
       <div v-if="canOptimizePrompt" class="flex flex-col gap-2 border-y border-gray-200 py-3">
         <UFormField :label="optimizerLabel" :error="optimizerError || undefined">
           <UTextarea
@@ -510,6 +552,11 @@ watch(testDialog, (opened) => {
       </UButton>
     </template>
   </UModal>
+  <LLMPromptEdit
+    v-if="data === 'aiGreeting' && followUpReplyEditOpen"
+    v-model="followUpReplyEditOpen"
+    data="aiReply"
+  />
   <UModal
     v-model:open="testDialog"
     title="Prompt 测试"
