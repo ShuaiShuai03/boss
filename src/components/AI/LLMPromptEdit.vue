@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
 import { parseFiltering } from '@/composables/useApplying/utils'
 import { JobData, useHelper } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
+import { generateOptimizedSystemPrompt } from '@/composables/useModel/promptOptimizer'
 import type { Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
 
@@ -22,12 +23,24 @@ const show = defineModel<boolean>({ required: true })
 const currentModel = ref<string>()
 const saving = ref(false)
 const saveError = ref('')
+const optimizing = ref(false)
+const optimizerInput = ref('')
+const optimizerError = ref('')
 
 const score = ref(10)
 
 const role = ['system', 'user', 'assistant']
 
 const message = ref<Prompt>([])
+const canOptimizePrompt = computed(() => props.data === 'aiFiltering' || props.data === 'aiReply')
+const optimizerLabel = computed(() =>
+  props.data === 'aiFiltering' ? '筛选偏好' : '回复偏好',
+)
+const optimizerPlaceholder = computed(() =>
+  props.data === 'aiFiltering'
+    ? '例如：排除销售、电销、客服、地推、课程顾问、外包驻场；优先 Agent、LLM 应用、AI 产品工程化岗位；大小周扣分。'
+    : '例如：语气克制专业，默认 1-2 句；不要过度热情；到岗时间可说明随时；只在 HR 明确要求时给联系方式。',
+)
 
 function normalizeModelKey(value: unknown) {
   if (typeof value === 'string') return value
@@ -42,6 +55,8 @@ function resetFromConfig() {
   message.value = jsonClone(conf.formData[props.data].prompt)
   score.value = props.data === 'aiFiltering' ? (conf.formData[props.data].score ?? 10) : 10
   saveError.value = ''
+  optimizerInput.value = ''
+  optimizerError.value = ''
 }
 
 function inputExample() {
@@ -54,6 +69,82 @@ function removeMessage(item: Prompt[number]) {
 
 function addMessage() {
   message.value.push({ role: 'user', content: '' })
+}
+
+function findSystemMessageIndex() {
+  return message.value.findIndex((item) => item.role === 'system')
+}
+
+async function optimizeSystemPrompt() {
+  const target =
+    props.data === 'aiFiltering' || props.data === 'aiReply' ? props.data : undefined
+  if (!target) {
+    return
+  }
+
+  const modelKey = normalizeModelKey(currentModel.value)
+  if (!modelKey) {
+    toast.add({
+      title: '请先选择模型',
+      color: 'warning',
+    })
+    return
+  }
+  const modelConf = model.modelData.value.find((item) => item.key === modelKey)
+  if (!modelConf) {
+    toast.add({
+      title: '模型不存在，请先在模型配置中保存该模型',
+      color: 'warning',
+    })
+    return
+  }
+
+  const userPreference = optimizerInput.value.trim()
+  if (!userPreference) {
+    toast.add({
+      title: '请先填写个性化要求',
+      color: 'warning',
+    })
+    return
+  }
+
+  const systemIndex = findSystemMessageIndex()
+  const currentSystemPrompt = systemIndex >= 0 ? message.value[systemIndex].content : ''
+  if (!currentSystemPrompt.trim()) {
+    toast.add({
+      title: '当前 Prompt 缺少 system 消息',
+      color: 'warning',
+    })
+    return
+  }
+
+  optimizing.value = true
+  optimizerError.value = ''
+  try {
+    const optimized = await generateOptimizedSystemPrompt(modelConf, {
+      target,
+      currentSystemPrompt,
+      userPreference,
+    })
+    message.value[systemIndex] = {
+      ...message.value[systemIndex],
+      content: optimized,
+    }
+    toast.add({
+      title: 'System Prompt 已优化，请测试后保存',
+      color: 'success',
+    })
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    optimizerError.value = errorMessage
+    logger.error('AI 优化 System Prompt 失败', err)
+    toast.add({
+      title: errorMessage,
+      color: 'error',
+    })
+  } finally {
+    optimizing.value = false
+  }
 }
 
 const testDialog = ref(false)
@@ -344,6 +435,29 @@ watch(testDialog, (opened) => {
         </ULink>
         的提示词文档学习 ( 示例提示词写的并不好,欢迎AI大佬来提pr )
       </div>
+      <div v-if="canOptimizePrompt" class="flex flex-col gap-2 border-y border-gray-200 py-3">
+        <UFormField :label="optimizerLabel" :error="optimizerError || undefined">
+          <UTextarea
+            v-model="optimizerInput"
+            autoresize
+            :rows="2"
+            :maxrows="4"
+            :placeholder="optimizerPlaceholder"
+          />
+        </UFormField>
+        <div class="flex justify-end">
+          <UButton
+            color="primary"
+            variant="soft"
+            icon="i-lucide-sparkles"
+            :loading="optimizing"
+            :disabled="saving || optimizing || model.isLoading.value"
+            @click="optimizeSystemPrompt"
+          >
+            AI 优化 System Prompt
+          </UButton>
+        </div>
+      </div>
       <div class="demo-dynamic space-y-3">
         <div v-for="(item, index) in message" :key="index" class="flex items-start gap-2">
           <div class="flex flex-col gap-3 w-27.5">
@@ -375,13 +489,23 @@ watch(testDialog, (opened) => {
     </template>
 
     <template #footer>
-      <UButton color="neutral" variant="outline" :disabled="saving" @click="show = false">
+      <UButton color="neutral" variant="outline" :disabled="saving || optimizing" @click="show = false">
         关闭
       </UButton>
-      <UButton color="neutral" variant="soft" :disabled="saving || model.isLoading.value" @click="test">
+      <UButton
+        color="neutral"
+        variant="soft"
+        :disabled="saving || optimizing || model.isLoading.value"
+        @click="test"
+      >
         测试
       </UButton>
-      <UButton color="primary" :loading="saving" :disabled="model.isLoading.value" @click="savePrompt">
+      <UButton
+        color="primary"
+        :loading="saving"
+        :disabled="optimizing || model.isLoading.value"
+        @click="savePrompt"
+      >
         保存
       </UButton>
     </template>
