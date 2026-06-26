@@ -9,6 +9,13 @@ import { HelperContext, JobData } from '@/composables/useHelper'
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { initGeekChatBridge } from '@/composables/useWebSocket/chatCore'
 import { Message } from '@/composables/useWebSocket/protobuf'
+import {
+  AI_REPLY_DOM_COMMAND_EVENT,
+  AI_REPLY_DOM_COMMAND_RESULT_EVENT,
+  type AiReplyCommandResult,
+  type AiReplyDomCommand,
+  type AiReplySendTarget,
+} from '@/features/aiReply/types'
 import { run } from '@/index'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
@@ -421,6 +428,61 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 }
 
+function cloneForDom<T>(value: T): T {
+  const cloneIntoFn = (globalThis as { cloneInto?: (value: T, target: Window) => T }).cloneInto
+  return typeof cloneIntoFn === 'function' ? cloneIntoFn(value, window) : value
+}
+
+function dispatchAiReplyCommandResult(result: AiReplyCommandResult) {
+  document.dispatchEvent(
+    new CustomEvent(AI_REPLY_DOM_COMMAND_RESULT_EVENT, {
+      detail: cloneForDom(result),
+    }),
+  )
+}
+
+async function sendAiReplyTarget(ctx: BossHelperCtx, target: AiReplySendTarget) {
+  const content = target.text.trim()
+  if (!content) {
+    throw new Error('回复内容为空')
+  }
+  if (!target.toUid) {
+    throw new Error('缺少 Boss/HR 用户 ID')
+  }
+
+  const message = new Message({
+    form_uid: String(window._PAGE.uid ?? window._PAGE.userId ?? ctx.uid),
+    to_uid: target.toUid,
+    to_name: target.toName ?? '',
+    friend_source: target.friendSource,
+    content,
+  })
+
+  await message.send()
+}
+
+function initAiReplyDomCommands(ctx: BossHelperCtx) {
+  document.addEventListener(AI_REPLY_DOM_COMMAND_EVENT, (event) => {
+    const command = (event as CustomEvent<AiReplyDomCommand>).detail
+    if (command?.type !== 'send-draft') {
+      return
+    }
+
+    void sendAiReplyTarget(ctx, command.payload)
+      .then(() => {
+        dispatchAiReplyCommandResult({ requestId: command.requestId, ok: true })
+      })
+      .catch((error) => {
+        logger.error('AI 回复草稿发送失败', error)
+        dispatchAiReplyCommandResult({
+          requestId: command.requestId,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+  })
+}
+
 export default defineUnlistedScript(async () => {
   //   document.documentElement.classList.toggle(
   //     "dark",
@@ -430,6 +492,7 @@ export default defineUnlistedScript(async () => {
   initGeekChatBridge()
 
   const bossHelpCtx = await BossHelperCtx.new()
+  initAiReplyDomCommands(bossHelpCtx)
 
   bossHelpCtx.rootVue.$router.afterHooks.push(
     (to: {

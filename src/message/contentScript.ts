@@ -74,6 +74,11 @@ export class ContentCounter implements BackgroundCounter {
     return true
   }
 
+  async openAiReplyPage() {
+    window.open(browser.runtime.getURL('/ai-reply.html' as any), '_blank', 'noopener')
+    return true
+  }
+
   async contentScriptTest(type: 'success' | 'error') {
     if (type === 'error') {
       throw new Error(`test error date: ${Date.now()}`)

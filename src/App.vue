@@ -14,12 +14,14 @@ import Logs from '@/components/Tabs/Logs.vue'
 import Statistics from '@/components/Tabs/Statistics.vue'
 import { useConf, appearanceConf } from '@/composables/conf'
 import { useModel } from '@/composables/useModel'
+import { counter } from '@/message'
 
 import { useHelper, VITE_VERSION } from './composables/useHelper'
 
 const model = useModel()
 const conf = useConf()
 const helper = useHelper()
+const toast = useToast()
 
 const items = computed<TabsItem[]>(() => {
   const configs = [
@@ -121,6 +123,17 @@ onMounted(async () => {
 
 function tagOpen(url: string) {
   window.open(url)
+}
+
+async function openAiReplyPage() {
+  try {
+    await counter.openAiReplyPage()
+  } catch (error) {
+    toast.add({
+      title: error instanceof Error ? error.message : String(error),
+      color: 'error',
+    })
+  }
 }
 
 const isDot = computed(() => {
@@ -229,6 +242,16 @@ function onPointerMove(ev: PointerEvent) {
             <template #logs><Logs /></template>
             <template #about><About /></template>
             <template #list-trailing>
+              <UButton
+                class="ml-2"
+                size="xs"
+                color="primary"
+                variant="subtle"
+                icon="i-lucide-message-square-reply"
+                @click.stop="openAiReplyPage"
+              >
+                AI回复
+              </UButton>
               <UButton class="ml-2" size="xs" color="primary" @click.stop="chatOpen = !chatOpen">
                 对话
               </UButton>
