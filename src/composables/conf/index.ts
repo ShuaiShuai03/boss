@@ -15,6 +15,7 @@ import {
 import { TimeoutError, withTimeout } from '@/utils/promise'
 
 import { defaultFormData } from './info'
+import { createConfSavePayload } from './savePayload'
 
 export * from './info'
 
@@ -204,20 +205,20 @@ export const useConf = () => {
     }
     isSaving.value = true
     savingPromise = (async () => {
-      const v = jsonClone(formData)
+      const payload = createConfSavePayload(formData, formDataPreset.value, formDataPresets.value)
       try {
         await assertContentBridgeReady()
         await withTimeout(
           (async () => {
-            await counter.storageSet(formDataKey(), v)
-            await counter.storageSet(formDataPresetKey, formDataPreset.value)
-            await counter.storageSet(formDataPresetsKey, formDataPresets.value)
+            await counter.storageSet(formDataKey(), payload.formData)
+            await counter.storageSet(formDataPresetKey, payload.formDataPreset)
+            await counter.storageSet(formDataPresetsKey, payload.formDataPresets)
           })(),
           CONF_SAVE_TIMEOUT_MS,
           '保存配置超时，请刷新当前 BOSS 页面后再试',
         )
 
-        logger.debug('formData保存', v)
+        logger.debug('formData保存', payload.formData)
         toast.add({
           title: '保存成功',
           color: 'success',
@@ -338,10 +339,11 @@ export const useConf = () => {
         value,
       })
       formDataPreset.value = value
+      const payload = createConfSavePayload(formData, formDataPreset.value, formDataPresets.value)
 
-      await counter.storageSet(formDataPresetKey, formDataPreset.value)
-      await counter.storageSet(formDataPresetsKey, formDataPresets.value)
-      await counter.storageSet(formDataKey(), jsonClone(formData))
+      await counter.storageSet(formDataPresetKey, payload.formDataPreset)
+      await counter.storageSet(formDataPresetsKey, payload.formDataPresets)
+      await counter.storageSet(formDataKey(), payload.formData)
 
       toast.add({
         title: '预设创建成功',

@@ -1,5 +1,14 @@
-import { FormDataRange } from '@/types/formData'
-import { parseGptJson } from '@/utils/ai'
+import { ALL, parse } from 'partial-json'
+
+type FormDataRange = [number, number, boolean]
+
+function parseGptJson<T = any>(json: string): Partial<T> | null {
+  const match = json.match(/```json(.+?)```/s)
+  if (match) {
+    json = match[1]
+  }
+  return parse(json, ALL)
+}
 
 export function rangeMatchFormat(v: FormDataRange, unit: string): string {
   return `${v[0]} - ${v[1]} ${unit} ${v[2] ? '严格' : '宽松'}`
@@ -33,6 +42,73 @@ export function rangeMatch(rangeStr: string, form: FormDataRange): boolean {
     // 宽松：任意重叠（闭区间）
     return Math.max(inputStart, start) <= Math.min(inputEnd, end)
   }
+}
+
+export interface KeywordFilterResult {
+  action: 'pass' | 'skip' | 'empty'
+  keyword?: string
+}
+
+function normalizeKeyword(value: string) {
+  return value.trim().toLowerCase()
+}
+
+export function normalizeFilterKeywords(values: string[]) {
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+export function defaultKeywordMatcher(text: string, keyword: string) {
+  return text.includes(keyword)
+}
+
+export function jobContentKeywordMatcher(text: string, keyword: string) {
+  text = text.toLowerCase()
+  keyword = keyword.toLowerCase()
+  let start = 0
+  while (start < text.length) {
+    const index = text.indexOf(keyword, start)
+    if (index === -1) {
+      return false
+    }
+
+    const before = text.slice(Math.max(0, index - 6), index)
+    const after = text.slice(index + keyword.length)
+    const negatedBefore = /(不|无).{0,5}$/.test(before)
+    const excludedAfter = /^(系统|软件|工具|服务)/.test(after)
+
+    if (!negatedBefore && !excludedAfter) {
+      return true
+    }
+    start = index + keyword.length
+  }
+  return false
+}
+
+export function evaluateKeywordFilter(
+  text: unknown,
+  values: string[],
+  include: boolean,
+  matcher: (text: string, keyword: string) => boolean = defaultKeywordMatcher,
+): KeywordFilterResult {
+  const keywords = normalizeFilterKeywords(values)
+  if (keywords.length === 0) {
+    return include ? { action: 'skip' } : { action: 'pass' }
+  }
+
+  const normalizedText = typeof text === 'string' ? text.trim().toLowerCase() : ''
+  if (!normalizedText) {
+    return { action: 'empty' }
+  }
+
+  const matchedKeyword = keywords.find((keyword) =>
+    matcher(normalizedText, normalizeKeyword(keyword)),
+  )
+  if (include) {
+    return matchedKeyword ? { action: 'pass', keyword: matchedKeyword } : { action: 'skip' }
+  }
+  return matchedKeyword ? { action: 'skip', keyword: matchedKeyword } : { action: 'pass' }
 }
 
 export function parseFiltering(content: string) {

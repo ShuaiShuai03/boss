@@ -4,7 +4,13 @@ import { HelperContext } from '~/composables/useHelper'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import { defineTaskHandler, JobStatus, TaskContext, TaskResult } from './type'
-import { parseFiltering, rangeMatch, rangeMatchFormat } from './utils'
+import {
+  evaluateKeywordFilter,
+  jobContentKeywordMatcher,
+  parseFiltering,
+  rangeMatch,
+  rangeMatchFormat,
+} from './utils'
 
 export class DependencyMissingError {
   constructor(public taskId: string) {}
@@ -144,21 +150,16 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       return
     }
     return async (_ctx, { jobData: data }) => {
-      const text = data.jobName.toLowerCase()
-      if (!text) return taskResult.skip('岗位名为空')
-      for (const x of ctx.helper.conf.formData.jobTitle.value) {
-        if (text.includes(x.toLowerCase())) {
-          if (ctx.helper.conf.formData.jobTitle.include) {
-            return
-          }
-          return {
-            isSkip: true,
-            reason: `岗位名含有排除关键词 [${x}]`,
-          }
-        }
-      }
-      if (ctx.helper.conf.formData.jobTitle.include) {
-        return taskResult.skip('岗位名不包含关键词')
+      const result = evaluateKeywordFilter(
+        data.jobName || data.positionName,
+        ctx.helper.conf.formData.jobTitle.value,
+        ctx.helper.conf.formData.jobTitle.include,
+      )
+      if (result.action === 'empty') return taskResult.skip('岗位名为空')
+      if (result.action === 'skip') {
+        return taskResult.skip(
+          result.keyword ? `岗位名含有排除关键词 [${result.keyword}]` : '岗位名不包含关键词',
+        )
       }
     }
   })
@@ -246,24 +247,19 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       return
     }
     return async (ctx, { jobData }) => {
-      const content = jobData.jobDescription.toLowerCase()
-      for (const x of ctx.helper.conf.formData.jobContent.value) {
-        if (!x) {
-          continue
-        }
-        const re = new RegExp(`(?<!(不|无).{0,5})${x.toLowerCase()}(?!系统|软件|工具|服务)`)
-        if (content != null && re.test(content)) {
-          if (ctx.helper.conf.formData.jobContent.include) {
-            return
-          }
-          return {
-            isSkip: true,
-            reason: `工作内容含有排除关键词 [${x}]`,
-          }
-        }
+      const result = evaluateKeywordFilter(
+        jobData.jobDescription,
+        ctx.helper.conf.formData.jobContent.value,
+        ctx.helper.conf.formData.jobContent.include,
+        jobContentKeywordMatcher,
+      )
+      if (result.action === 'empty' && ctx.helper.conf.formData.jobContent.include) {
+        return taskResult.skip('工作内容为空')
       }
-      if (ctx.helper.conf.formData.jobContent.include) {
-        return taskResult.skip('工作内容中不包含关键词')
+      if (result.action === 'skip') {
+        return taskResult.skip(
+          result.keyword ? `工作内容含有排除关键词 [${result.keyword}]` : '工作内容中不包含关键词',
+        )
       }
     }
   })
