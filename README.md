@@ -1,31 +1,107 @@
+# Boss-Helper
+
+首先向原项目作者 [Ocyss](https://github.com/Ocyss) 以及所有早期贡献者表达尊重和感谢。Boss-Helper 的基础能力、产品方向和开源积累来自原作者长期维护的工作，本仓库是在此基础上的延续、修复和增强版本，希望让更多求职者可以更稳定、更灵活地使用自己的自动化与 AI 工具。
+
 > [!CAUTION]
-> 本项目仅供学习交流，禁止用于商业用途
+> 本项目仅供学习、研究和个人效率探索，请遵守招聘平台规则和相关法律法规。
 >
-> 使用该脚本有一定风险(如黑号,封号,权重降低等)，本项目不承担任何责任
+> 自动化投递、自动化沟通和第三方模型调用都可能带来账号风控、信息误发或隐私泄露风险。使用前请充分理解配置含义，并自行承担使用结果。
 
-| Chrome                                                                                                                                                                                             | Crx搜搜                                                                                                                                           | Edge                                                                                                                                                                                                                                                                                                                           | FireFox                                                                                                                                   | Github                                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/ogkmgjbagackkdlcibcailacnncgonbn?label=Chrome插件商店)](https://chrome.google.com/webstore/detail/ogkmgjbagackkdlcibcailacnncgonbn) | [![Crx 搜搜](https://img.shields.io/badge/Crx搜索-v%3F.%3F.%3F-EF7C3D)](https://www.crxsoso.com/webstore/detail/ogkmgjbagackkdlcibcailacnncgonbn) | [![Edge Web Store](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fmicrosoftedge.microsoft.com%2Faddons%2Fgetproductdetailsbycrxid%2Fjcllnbjfeamhihjpfjlclhdnjmggbgal&query=version&prefix=v&label=Edge插件商店&color=EF7C3D)](https://microsoftedge.microsoft.com/addons/detail/jcllnbjfeamhihjpfjlclhdnjmggbgal) | [![Firefox](https://img.shields.io/amo/v/boss-helper?label=Mozilla插件商店)](https://addons.mozilla.org/zh-TW/firefox/addon/boss-helper/) | [![GitHub Release](https://img.shields.io/github/v/release/Ocyss/boss-helper)](https://github.com/Ocyss/boss-helper/releases/latest/) |
+## 项目简介
 
-> **国内**: 如果无法访问 `Chrome插件商店` , 请使用 `Crx搜搜` 或 `Edge插件商店` 安装
+Boss-Helper 是一个面向 Boss 直聘网页端的浏览器扩展，目标是减少重复筛选、投递和沟通成本，让求职者把时间更多投入到岗位判断、简历打磨和面试准备上。
 
-## 项目介绍
+当前版本基于 WXT、Vue 3、Nuxt UI 4 和 Tailwind CSS 4 构建，并在原有批量处理能力上加强了 AI 配置、模型兼容、异常恢复和提示词个性化能力。
 
-Boss直聘助手, 皆在减少投递简历的麻烦, 和提高投递简历的效率, 技术栈使用WXT + Vue3 + NuxtUI@4 + TailwindCSS@4, 开源在 Github 欢迎前来Pr
+## 本版本的主要改动
 
-> 本项目处于积极维护状态, 一直很忙所以拖了比较久才开源，抱歉了~
+- 支持 OpenAI-compatible 的第三方 API 服务，可配置 Base URL、模型名、额外请求头、额外请求体和超时时间。
+- 模型配置改为本地存储，降低 API Key 进入同步存储的风险，并兼容旧配置迁移。
+- 修复 AI 配置保存、模型读取、扩展重载后上下文失效、岗位详情等待和投递重试等稳定性问题。
+- 优化 AI 筛选、AI 招呼语和 AI 回复的默认提示词，默认内容使用通用占位符，避免公开仓库暴露个人简历信息。
+- 为 AI 筛选和 AI 回复增加个性化 System Prompt 优化入口，用户可输入排除岗位、目标方向、回复语气等要求，由模型辅助生成更贴合个人求职策略的提示词。
+- 改进错误提示和测试反馈，让模型缺失、JSON 配置错误、AI 超时和请求失败更容易定位。
 
-## 相关链接
+## 功能概览
 
-Github开源地址: <https://github.com/ocyss/boss-helper>
+- 批量处理岗位卡片，按页执行筛选、投递和日志记录。
+- 基于岗位名、公司、岗位内容、HR 职位、薪资、公司规模、活跃度、已沟通状态、相同公司和相同 HR 进行规则筛选。
+- 支持高德地图距离与时间筛选，需要用户自行配置高德 API Key。
+- 支持自定义招呼语模板和 AI 生成招呼语。
+- 支持 AI 岗位过滤，按岗位详情与个人背景输出加分/扣分 JSON。
+- 支持 AI 聊天回复，根据岗位信息和 HR 上下文生成可编辑草稿。
+- 支持本地日志查看，便于回溯每个岗位的处理结果、AI 输入和 AI 输出。
 
-飞书反馈问卷(匿名): <https://gai06vrtbc0.feishu.cn/share/base/form/shrcnmEq2fxH9hM44hqEnoeaj8g>
+## AI 能力
 
-> 每个提交都会给我发通知，我看见就会评论的形式回复 一般 1-2天
+本项目不绑定单一模型供应商。只要服务兼容 OpenAI Chat Completions 风格接口，通常都可以通过模型配置接入，例如：
 
-飞书问卷结果: <https://gai06vrtbc0.feishu.cn/share/base/view/shrcnrg8D0cbLQc89d7Jj7AZgMc>
+- OpenAI 官方 API
+- 兼容 OpenAI 协议的中转服务
+- 第三方大模型服务
+- 私有化或本地部署的 OpenAI-compatible 网关
 
-greasyfork地址(0.2旧版本): <https://greasyfork.org/zh-CN/scripts/491340>
+建议用户先在“模型配置”中完成连接测试，再分别测试 AI 筛选、AI 招呼语和 AI 回复。默认提示词中的 `[求职者姓名]`、`[目标岗位方向]`、`[核心技能]`、`[项目 A]` 等内容需要替换为自己的真实背景。
+
+## 安装与使用
+
+1. 克隆仓库并安装依赖：
+
+   ```bash
+   npm install
+   ```
+
+2. 构建 Chrome 扩展：
+
+   ```bash
+   npm run build:chrome
+   ```
+
+3. 打开浏览器扩展管理页面，启用开发者模式，选择“加载已解压的扩展程序”，加载：
+
+   ```text
+   .output/chrome-mv3
+   ```
+
+4. 打开 Boss 直聘岗位列表页，按需配置筛选规则、模型和 AI 提示词。
+
+## 三端构建
+
+构建解压目录：
+
+```bash
+npm run build
+```
+
+生成发布压缩包：
+
+```bash
+npm run zip
+```
+
+常用单端命令：
+
+```bash
+npm run build:chrome
+npm run build:edge
+npm run build:firefox
+npm run zip:chrome
+npm run zip:edge
+npm run zip:firefox
+```
+
+构建产物位于 `.output/`。该目录默认不纳入 Git 版本管理，请按浏览器商店或手动安装需求自行取用。
+
+## 开发命令
+
+```bash
+npm run dev
+npm run check
+npm run lint
+npm run build
+```
+
+如果修改了模型、配置保存、提示词或投递流程，建议额外运行 `scripts/` 下的验证脚本。
 
 ## 项目预览
 
@@ -35,56 +111,28 @@ greasyfork地址(0.2旧版本): <https://greasyfork.org/zh-CN/scripts/491340>
 [![配置界面](docs/img/shot_2024-04-02_22-26-54.png)](docs/img/shot_2024-04-02_22-26-54.png)
 [![日志界面](docs/img/shot_2024-04-02_22-32-25.png)](docs/img/shot_2024-04-02_22-32-25.png)
 
-## TODO
+## 贡献
 
-- [x] 优化UI去除广告
-- [x] 批量投递简历
-- 高级筛选
-  - [x] 薪资,公司名,工作名,人数,内容简单筛选
-  - 公司地址相关
-    > 使用高德api，需要自行申请，或者使用关键字筛选, 暂时只有驾车和步行
-    - [x] 驾车/步行距离
-    - [x] 驾车/步行时间
-  - [ ] 公司风险评控
-  - [x] AI筛选
-- 自动打招呼
-  - [x] 模板语言
-  - [x] 支持chatGPT
-- AI赋能
-  - [ ] 自动回复聊天
-  - [x] 多模型管理
-- 额外功能(有时间会写)
-  - [x] 自适应UI适配手机
-  - [ ] 黑名单
-  - [x] 多账号管理 (废弃, 改为多配置切换)
-  - [ ] 聊天阻止发送已读
-  - [ ] boss消息弹窗
+欢迎提交 Issue 和 Pull Request。为了让维护更高效，请尽量：
 
-## 参与贡献
-
-1. Fork 本仓库并克隆到本地。
-2. 在新分支上进行您的更改：`git checkout -b 您的分支名称`
-3. 提交更改：`git commit -am '描述您的更改'`
-4. 推送更改到您的 Fork：`git push origin 您的分支名称`
-5. 提交 Pull 请求。
+1. 保持改动聚焦，避免把功能、格式化和大规模重构混在一起。
+2. 描述清楚复现路径、预期行为和实际行为。
+3. 涉及 AI、配置保存或投递流程时，补充对应验证命令或手工验证记录。
+4. 不要提交个人简历、API Key、Cookie、Token 或浏览器本地配置。
 
 ## 鸣谢
 
-- <https://github.com/yangfeng20/boss_batch_push>
-- <https://github.com/lisonge/vite-plugin-monkey>
-- <https://github.com/chatanywhere/GPT_API_free>
-
-- <https://uiverse.io/>
-- <https://www.runoob.com/manual/mqtt/protocol/MQTT-3.1.1-CN.pdf>
+- 原项目：[Ocyss/boss-helper](https://github.com/Ocyss/boss-helper)
+- [yangfeng20/boss_batch_push](https://github.com/yangfeng20/boss_batch_push)
+- [lisonge/vite-plugin-monkey](https://github.com/lisonge/vite-plugin-monkey)
+- [chatanywhere/GPT_API_free](https://github.com/chatanywhere/GPT_API_free)
+- [uiverse.io](https://uiverse.io/)
+- [MQTT 3.1.1 中文协议文档](https://www.runoob.com/manual/mqtt/protocol/MQTT-3.1.1-CN.pdf)
 
 ## 类似项目
 
-- <https://github.com/Frrrrrrrrank/auto_job__find__chatgpt__rpa>
-- <https://github.com/noBaldAaa/find-job>
-
-## 最后
-
-嗯...
+- [Frrrrrrrrank/auto_job__find__chatgpt__rpa](https://github.com/Frrrrrrrrank/auto_job__find__chatgpt__rpa)
+- [noBaldAaa/find-job](https://github.com/noBaldAaa/find-job)
 
 ## Star 趋势
 

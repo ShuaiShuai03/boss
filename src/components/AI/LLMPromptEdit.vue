@@ -38,8 +38,8 @@ const optimizerLabel = computed(() =>
 )
 const optimizerPlaceholder = computed(() =>
   props.data === 'aiFiltering'
-    ? '例如：排除销售、电销、客服、地推、课程顾问、外包驻场；优先 Agent、LLM 应用、AI 产品工程化岗位；大小周扣分。'
-    : '例如：语气克制专业，默认 1-2 句；不要过度热情；到岗时间可说明随时；只在 HR 明确要求时给联系方式。',
+    ? '例如：排除 [岗位类型 A]、[岗位类型 B]；优先 [目标方向]；[工作制度/通勤/薪资] 不符合时扣分。'
+    : '例如：语气 [克制专业/热情主动]，默认 [1-2] 句；突出 [项目/技能]；只在 HR 明确要求时提供 [联系方式/作品链接]。',
 )
 
 function normalizeModelKey(value: unknown) {
