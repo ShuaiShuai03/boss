@@ -5,13 +5,13 @@ import { counter } from '@/message'
 import { ExtStorage } from '@/message'
 import type { ConfigLevel, FormData } from '@/types/formData'
 import deepmerge, { jsonClone } from '@/utils/deepmerge'
-import { exportJson, importJson } from '@/utils/jsonImportExport'
-import { logger } from '@/utils/logger'
 import {
   EXTENSION_CONTENT_BRIDGE_UNAVAILABLE_MESSAGE,
   EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
   isExtensionContextInvalidated,
 } from '@/utils/extension'
+import { exportJson, importJson } from '@/utils/jsonImportExport'
+import { logger } from '@/utils/logger'
 import { TimeoutError, withTimeout } from '@/utils/promise'
 
 import { defaultFormData } from './info'
@@ -113,10 +113,34 @@ const formDataKey = () => {
   return 'local:web-geek-job-FormData'
 }
 
+function summarizeFormDataForLog(value: FormData) {
+  return {
+    version: value.version,
+    configLevel: value.configLevel,
+    autoApplyEnabled: value.autoApplyEnabled.value,
+    autoGreetingEnabled: value.autoGreetingEnabled.value,
+    aiFiltering: {
+      enable: value.aiFiltering.enable,
+      model: value.aiFiltering.model,
+      promptMessages: value.aiFiltering.prompt.length,
+    },
+    aiGreeting: {
+      enable: value.aiGreeting.enable,
+      model: value.aiGreeting.model,
+      promptMessages: value.aiGreeting.prompt.length,
+    },
+    aiReply: {
+      enable: value.aiReply.enable,
+      model: value.aiReply.model,
+      promptMessages: value.aiReply.prompt.length,
+    },
+  }
+}
+
 watchThrottled(
   formData,
   (v) => {
-    logger.debug('formData改变', toRaw(v))
+    logger.debug('formData改变', summarizeFormDataForLog(toRaw(v)))
   },
   { throttle: 2000 },
 )
@@ -266,7 +290,7 @@ export const useConf = () => {
           '保存配置超时，请刷新当前 BOSS 页面后再试',
         )
 
-        logger.debug('formData保存', payload.formData)
+        logger.debug('formData保存', summarizeFormDataForLog(payload.formData))
         toast.add({
           title: '保存成功',
           color: 'success',
@@ -294,7 +318,10 @@ export const useConf = () => {
   }
 
   async function confReload() {
-    const v = deepmerge<FormData>(createDefaultFormData(), await counter.storageGet(formDataKey(), {}))
+    const v = deepmerge<FormData>(
+      createDefaultFormData(),
+      await counter.storageGet(formDataKey(), {}),
+    )
     deepmerge(formData, v, { clone: false })
     logger.debug('formData已重置')
     toast.add({

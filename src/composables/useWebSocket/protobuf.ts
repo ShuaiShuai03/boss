@@ -1,10 +1,5 @@
-import {
-  BOSS_HELPER_CHAT_BRIDGE_SEND,
-  BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-  type BossHelperChatMessageArgs,
-  type BossHelperChatSendRequest,
-  isBossHelperChatSendResult,
-} from './chatBridge'
+import { type BossHelperChatMessageArgs } from './chatBridge'
+import { sendChatByGeekChatCore } from './chatCore'
 import { mqtt } from './mqtt'
 import type { TechwolfChatProtocol } from './type'
 import { AwesomeMessage } from './type'
@@ -54,51 +49,6 @@ function normalizeError(error: unknown) {
   }
 
   return new Error(typeof error === 'string' ? error : '打招呼发送失败')
-}
-
-async function sendThroughMainWorldBridge(args: MessageArgs) {
-  const requestId = `boss-helper-chat-${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-  await new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      cleanup()
-      reject(new Error('主世界聊天桥接超时'))
-    }, 25000)
-
-    const cleanup = () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('message', handler)
-    }
-
-    const handler = (event: MessageEvent<unknown>) => {
-      if (event.source !== window || !isBossHelperChatSendResult(event.data)) {
-        return
-      }
-
-      if (event.data.requestId !== requestId) {
-        return
-      }
-
-      cleanup()
-
-      if (event.data.success) {
-        resolve()
-        return
-      }
-
-      reject(new Error(event.data.error ?? '主世界聊天发送失败'))
-    }
-
-    window.addEventListener('message', handler)
-
-    const request: BossHelperChatSendRequest = {
-      source: BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-      type: BOSS_HELPER_CHAT_BRIDGE_SEND,
-      requestId,
-      payload: args,
-    }
-    window.postMessage(request, '*')
-  })
 }
 
 export class Message {
@@ -166,7 +116,7 @@ export class Message {
     let lastError: Error | null = null
 
     try {
-      await sendThroughMainWorldBridge(this.args)
+      await sendChatByGeekChatCore(this.args)
       return
     } catch (error) {
       lastError = normalizeError(error)
@@ -190,10 +140,10 @@ export class Message {
       lastError = normalizeError(error)
     }
     const error = lastError ?? new Error('未找到可用聊天连接')
-    throw error
     toast.add({
       title: error.message,
       color: 'error',
     })
+    throw error
   }
 }

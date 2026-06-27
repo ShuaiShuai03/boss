@@ -13,6 +13,7 @@ import { ShallowReactive } from 'vue'
 import { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 import { normalizeExtensionContextError } from '@/utils/extension'
+import { sanitizeErrorMessage } from '@/utils/sensitive'
 
 import { ModelConf } from '.'
 import { WorkflowData } from '../useApplying/type'
@@ -198,9 +199,7 @@ ${data.jobData.jobDescription}`,
     this.lastCreateAgentError = ''
     const availableKeys = this.ctx.models.modelData.value.map((m) => m.key).filter(Boolean)
     if (!model.model) {
-      this.lastCreateAgentError = `模型 key 为空，可用模型 key: ${
-        availableKeys.join(', ') || '无'
-      }`
+      this.lastCreateAgentError = `模型 key 为空，可用模型 key: ${availableKeys.join(', ') || '无'}`
       logger.warn('创建 AI Agent 失败', this.lastCreateAgentError)
       return false
     }
@@ -328,7 +327,10 @@ ${data.jobData.jobDescription}`,
               ? new Error('AI 请求超时', { cause: e })
               : e
       state.error = error as Error
-      logger.error('Error during chat generation', e)
+      logger.error(
+        'Error during chat generation',
+        sanitizeErrorMessage(e, [modelConf.data?.api_key, modelConf.data?.advanced?.extra_headers]),
+      )
       throw error
     }
   }

@@ -5,7 +5,7 @@ import type { StorageItemKey } from '#imports'
 import { storage } from '#imports'
 
 import type { BackgroundCounter } from './background'
-export { ProvideContentAdapter } from './contentScriptShare'
+export { createContentBridgeOptions, ProvideContentAdapter } from './contentScriptShare'
 
 export const [, injectBackgroundCounter] = defineProxy(() => ({}) as BackgroundCounter, {
   namespace: '__boss-helper-background__',

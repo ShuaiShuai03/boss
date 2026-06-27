@@ -19,6 +19,10 @@ assert.equal(
   normalizeOpenaiBaseUrl('https://ark.cn-beijing.volces.com/api/v3'),
   'https://ark.cn-beijing.volces.com/api/v3',
 )
+assert.equal(normalizeOpenaiBaseUrl('http://localhost:11434/v1'), 'http://localhost:11434/v1')
+assert.throws(() => normalizeOpenaiBaseUrl('javascript:alert(1)'), /仅支持 https:\/\//)
+assert.throws(() => normalizeOpenaiBaseUrl('http://192.168.1.10/v1'), /http:\/\/ 仅允许本机地址/)
+assert.throws(() => normalizeOpenaiBaseUrl('api.example.com/v1'), /Invalid URL/)
 
 assert.deepEqual(
   getModelEndpointCandidates('https://api.example.com').map((item) => item.modelsUrl),

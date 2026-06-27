@@ -22,6 +22,20 @@ export interface BackgroundRawRequest {
   timeout?: number
 }
 
+function normalizeHttpRequestUrl(url: string) {
+  const parsedUrl = new URL(url)
+  if (parsedUrl.protocol === 'https:') {
+    return parsedUrl.toString()
+  }
+  if (
+    parsedUrl.protocol === 'http:' &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(parsedUrl.hostname.toLowerCase())
+  ) {
+    return parsedUrl.toString()
+  }
+  throw new Error('仅支持 HTTPS 请求，HTTP 仅允许本机地址')
+}
+
 export class BackgroundCounter {
   async request(args: {
     url: string
@@ -31,8 +45,9 @@ export class BackgroundCounter {
   }) {
     console.log('request', args)
     const signal = AbortSignal.timeout(args.timeout * 1000)
+    const url = normalizeHttpRequestUrl(args.url)
 
-    const res = await fetch(args.url, {
+    const res = await fetch(url, {
       ...args.data,
       signal,
       mode: 'cors',
@@ -54,7 +69,8 @@ export class BackgroundCounter {
 
   async rawRequest(args: BackgroundRawRequest): Promise<BackgroundRawResponse> {
     const signal = AbortSignal.timeout(args.timeout ?? 60000)
-    const res = await fetch(args.url, {
+    const url = normalizeHttpRequestUrl(args.url)
+    const res = await fetch(url, {
       method: args.data?.method ?? 'GET',
       headers: args.data?.headers,
       body: args.data?.body,

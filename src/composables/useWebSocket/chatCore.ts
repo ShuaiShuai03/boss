@@ -1,11 +1,6 @@
-import {
-  BOSS_HELPER_CHAT_BRIDGE_RESULT,
-  BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-  type BossHelperChatMessageArgs,
-  type BossHelperChatSendResult,
-  isBossHelperChatSendRequest,
-} from './chatBridge'
 import { logger } from '@/utils/logger'
+
+import type { BossHelperChatMessageArgs } from './chatBridge'
 
 type GeekChatCoreVersion = '1.0.8' | '2.0.1'
 
@@ -30,8 +25,6 @@ const GEEK_CHAT_DEFAULT_VERSION: GeekChatCoreVersion = '1.0.8'
 const GEEK_CHAT_VERSION_V2: GeekChatCoreVersion = '2.0.1'
 const GEEK_CHAT_SCRIPT_TS = '20260123'
 const GEEK_CHAT_TIMEOUT_MS = 20000
-const GEEK_CHAT_BRIDGE_FLAG = '__BOSS_HELPER_GEEK_CHAT_BRIDGE_READY__'
-
 let scriptPromise: Promise<void> | null = null
 let clientPromise: Promise<GeekChatCoreClient> | null = null
 
@@ -200,14 +193,6 @@ async function ensureGeekChatClient() {
   return clientPromise
 }
 
-function normalizeChatError(error: unknown) {
-  if (error instanceof Error) {
-    return error
-  }
-
-  return new Error(typeof error === 'string' ? error : '聊天发送失败')
-}
-
 function waitForChatSendResult(client: GeekChatCoreClient, clientMid: number) {
   return new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -272,44 +257,4 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
   )
 
   await waitForResult
-}
-
-function createSendResult(
-  requestId: string,
-  success: boolean,
-  error?: string,
-): BossHelperChatSendResult {
-  return {
-    source: BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-    type: BOSS_HELPER_CHAT_BRIDGE_RESULT,
-    requestId,
-    success,
-    error,
-  }
-}
-
-export function initGeekChatBridge() {
-  if (window[GEEK_CHAT_BRIDGE_FLAG] === true) {
-    return
-  }
-
-  window[GEEK_CHAT_BRIDGE_FLAG] = true
-
-  window.addEventListener('message', (event) => {
-    if (event.source !== window || !isBossHelperChatSendRequest(event.data)) {
-      return
-    }
-
-    const { requestId, payload } = event.data
-
-    void sendChatByGeekChatCore(payload)
-      .then(() => {
-        window.postMessage(createSendResult(requestId, true), '*')
-      })
-      .catch((error) => {
-        const normalizedError = normalizeChatError(error)
-        logger.error('主世界聊天发送失败', normalizedError)
-        window.postMessage(createSendResult(requestId, false, normalizedError.message), '*')
-      })
-  })
 }

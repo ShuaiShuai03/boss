@@ -32,6 +32,18 @@ const modelData = ref<ModelConf[]>([])
 const isLoading = ref(true)
 const isSaving = ref(false)
 
+function summarizeModelConfForLog(model: ModelConf) {
+  return {
+    key: model.key,
+    name: model.name,
+    mode: model.data?.mode,
+    base_url: model.data?.base_url,
+    model: model.data?.model,
+    has_api_key: Boolean(model.data?.api_key),
+    extra_header_keys: Object.keys(model.data?.advanced?.extra_headers ?? {}),
+  }
+}
+
 function normalizeModelConf(model: ModelConf): ModelConf {
   if (!model.data) return model
   return {
@@ -46,7 +58,7 @@ export const useModel = () => {
     try {
       const localData = await counter.storageGet<ModelConf[] | null>(confModelKey, null)
       if (Array.isArray(localData)) {
-        logger.debug('ai模型数据', localData)
+        logger.debug('ai模型数据', localData.map(summarizeModelConfForLog))
         modelData.value = localData.map(normalizeModelConf)
         return
       }
@@ -55,7 +67,7 @@ export const useModel = () => {
       if (Array.isArray(legacyData)) {
         const migrated = legacyData.map(normalizeModelConf)
         await counter.storageSet(confModelKey, migrated)
-        logger.debug('ai模型数据已迁移到 local', migrated)
+        logger.debug('ai模型数据已迁移到 local', migrated.map(summarizeModelConfForLog))
         modelData.value = migrated
         return
       }

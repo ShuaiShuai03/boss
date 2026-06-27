@@ -9,6 +9,7 @@ import type { OpenaiLLMConf } from '@/composables/useModel/openai'
 import { normalizeOpenaiConfig } from '@/composables/useModel/openai-utils'
 import { jsonClone } from '@/utils/deepmerge'
 import { logger } from '@/utils/logger'
+import { sanitizeSensitiveText } from '@/utils/sensitive'
 
 import LLMForm from './LLMForm.vue'
 
@@ -109,13 +110,10 @@ interface UserInfo {
 }
 
 function sanitizeError(err: unknown) {
-  let message = err instanceof Error ? err.message : String(err)
-  if (llmFormData.api_key) {
-    message = message.replaceAll(llmFormData.api_key, '[API_KEY]')
-  }
-  return message
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+  return sanitizeSensitiveText(err instanceof Error ? err.message : String(err), [
+    llmFormData.api_key,
+    llmFormData.advanced?.extra_headers,
+  ])
 }
 
 async function refreshModels() {

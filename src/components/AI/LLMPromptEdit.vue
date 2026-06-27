@@ -9,6 +9,7 @@ import { useModel } from '@/composables/useModel'
 import { generateOptimizedSystemPrompt } from '@/composables/useModel/promptOptimizer'
 import type { Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
+import { sanitizeErrorMessage } from '@/utils/sensitive'
 
 import Alert from '../Alert.vue'
 
@@ -34,9 +35,7 @@ const role = ['system', 'user', 'assistant']
 
 const message = ref<Prompt>([])
 const canOptimizePrompt = computed(() => props.data === 'aiFiltering' || props.data === 'aiReply')
-const optimizerLabel = computed(() =>
-  props.data === 'aiFiltering' ? '筛选偏好' : '回复偏好',
-)
+const optimizerLabel = computed(() => (props.data === 'aiFiltering' ? '筛选偏好' : '回复偏好'))
 const optimizerPlaceholder = computed(() =>
   props.data === 'aiFiltering'
     ? '例如：排除 [岗位类型 A]、[岗位类型 B]；优先 [目标方向]；[工作制度/通勤/薪资] 不符合时扣分。'
@@ -77,8 +76,7 @@ function findSystemMessageIndex() {
 }
 
 async function optimizeSystemPrompt() {
-  const target =
-    props.data === 'aiFiltering' || props.data === 'aiReply' ? props.data : undefined
+  const target = props.data === 'aiFiltering' || props.data === 'aiReply' ? props.data : undefined
   if (!target) {
     return
   }
@@ -136,9 +134,12 @@ async function optimizeSystemPrompt() {
       color: 'success',
     })
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMessage = sanitizeErrorMessage(err, [
+      modelConf.data?.api_key,
+      modelConf.data?.advanced?.extra_headers,
+    ])
     optimizerError.value = errorMessage
-    logger.error('AI 优化 System Prompt 失败', err)
+    logger.error('AI 优化 System Prompt 失败', errorMessage)
     toast.add({
       title: errorMessage,
       color: 'error',
@@ -297,9 +298,11 @@ async function testJob() {
           content,
         })
       } catch (err: any) {
-        logger.error(err)
+        logger.error(
+          sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
+        )
         toast.add({
-          title: err.message,
+          title: sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
           color: 'error',
         })
       } finally {
@@ -312,9 +315,9 @@ async function testJob() {
       await Promise.all(batch.map(handle))
     }
   } catch (err: any) {
-    logger.error(err)
+    logger.error(sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]))
     toast.add({
-      title: err.message,
+      title: sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
       color: 'error',
     })
   } finally {
@@ -332,7 +335,8 @@ async function savePrompt() {
     })
     return
   }
-  if (!model.modelData.value.some((item) => item.key === modelKey)) {
+  const modelConf = model.modelData.value.find((item) => item.key === modelKey)
+  if (!modelConf) {
     toast.add({
       title: '模型不存在，请先在模型配置中保存该模型',
       color: 'warning',
@@ -351,9 +355,12 @@ async function savePrompt() {
     await conf.confSaving()
     show.value = false
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = sanitizeErrorMessage(err, [
+      modelConf.data?.api_key,
+      modelConf.data?.advanced?.extra_headers,
+    ])
     saveError.value = message
-    logger.error('保存 AI Prompt 失败', err)
+    logger.error('保存 AI Prompt 失败', message)
   } finally {
     saving.value = false
   }
@@ -453,7 +460,10 @@ watch(testDialog, (opened) => {
         </ULink>
         的提示词文档学习 ( 示例提示词写的并不好,欢迎AI大佬来提pr )
       </div>
-      <div v-if="data === 'aiGreeting'" class="flex items-center justify-between gap-4 border-y border-default py-3">
+      <div
+        v-if="data === 'aiGreeting'"
+        class="flex items-center justify-between gap-4 border-y border-default py-3"
+      >
         <div class="min-w-0">
           <div class="text-sm font-medium text-default">后续回复</div>
           <p class="text-sm text-muted">
@@ -531,7 +541,12 @@ watch(testDialog, (opened) => {
     </template>
 
     <template #footer>
-      <UButton color="neutral" variant="outline" :disabled="saving || optimizing" @click="show = false">
+      <UButton
+        color="neutral"
+        variant="outline"
+        :disabled="saving || optimizing"
+        @click="show = false"
+      >
         关闭
       </UButton>
       <UButton

@@ -2,8 +2,12 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { LanguageModelV3 } from '@ai-sdk/provider'
 
 import { counter } from '@/message'
-import { EXTENSION_CONTEXT_INVALIDATED_MESSAGE, normalizeExtensionContextError } from '@/utils/extension'
+import {
+  EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
+  normalizeExtensionContextError,
+} from '@/utils/extension'
 import { withTimeout } from '@/utils/promise'
+import { sanitizeSensitiveText } from '@/utils/sensitive'
 
 import { desc, getEffectiveAiTimeoutMs, other } from './common'
 import {
@@ -175,13 +179,7 @@ const info: LLMInfo<OpenaiLLMConf> = {
 }
 
 function sanitizeMessage(message: string, apiKey?: string) {
-  let result = message
-  if (apiKey) {
-    result = result.replaceAll(apiKey, '[API_KEY]')
-  }
-  result = result.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
-  result = result.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
-  return result
+  return sanitizeSensitiveText(message, [apiKey])
 }
 
 function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
@@ -193,7 +191,11 @@ function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
 
 async function assertBackgroundBridgeReady() {
   try {
-    await withTimeout(counter.backgroundTest('success'), 3000, EXTENSION_CONTEXT_INVALIDATED_MESSAGE)
+    await withTimeout(
+      counter.backgroundTest('success'),
+      3000,
+      EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
+    )
   } catch (error) {
     throw normalizeExtensionContextError(error)
   }
