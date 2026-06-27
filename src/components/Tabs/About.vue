@@ -1,7 +1,11 @@
-<script lang="ts" setup></script>
+<script lang="ts" setup>
+import shuaiRewardUrl from '@/assets/rewards/shuai-reward.jpg'
+
+const authorRewardUrl = 'https://qiu-config.oss-cn-beijing.aliyuncs.com/reward.png'
+</script>
 
 <template>
-  <div class="flex flex-row">
+  <div class="flex flex-col gap-4 xl:flex-row">
     <div class="flex-1">
       <Alert
         title="扩展完全免费且开源"
@@ -61,18 +65,49 @@
         <br />
       </div>
     </div>
-    <UPopover mode="hover" style="z-index: 10000" :content="{ side: 'left' }">
-      <img
-        data-help="可能并没什么用,只是不让页面空荡荡"
-        class="size-70 object-cover"
-        src="https://qiu-config.oss-cn-beijing.aliyuncs.com/reward.png"
-      />
-      <template #content>
-        <img
-          class="size-[50svh] object-cover"
-          src="https://qiu-config.oss-cn-beijing.aliyuncs.com/reward.png"
-        />
-      </template>
-    </UPopover>
+    <div class="grid shrink-0 grid-cols-2 gap-3" data-help="感谢支持开源维护">
+      <UPopover mode="hover" style="z-index: 10000" :content="{ side: 'left' }">
+        <button
+          type="button"
+          class="flex flex-col items-center gap-2 rounded-md border border-default bg-default p-2 text-sm text-muted"
+        >
+          <img
+            data-help="原作者 Ocyss_04 的赞赏码"
+            class="size-42 bg-white object-contain"
+            :src="authorRewardUrl"
+            alt="Ocyss_04 的赞赏码"
+          />
+          <span>Ocyss_04</span>
+        </button>
+        <template #content>
+          <img
+            class="size-[50svh] bg-white object-contain"
+            :src="authorRewardUrl"
+            alt="Ocyss_04 的赞赏码"
+          />
+        </template>
+      </UPopover>
+      <UPopover mode="hover" style="z-index: 10000" :content="{ side: 'left' }">
+        <button
+          type="button"
+          class="flex flex-col items-center gap-2 rounded-md border border-default bg-default p-2 text-sm text-muted"
+        >
+          <img
+            data-help="SHUAI 的赞赏码"
+            class="size-42 bg-white object-contain"
+            :src="shuaiRewardUrl"
+            alt="SHUAI 的赞赏码"
+          />
+          <span>SHUAI</span>
+        </button>
+        <template #content>
+          <img
+            class="size-[50svh] bg-white object-contain"
+            :src="shuaiRewardUrl"
+            alt="SHUAI 的赞赏码"
+          />
+        </template>
+      </UPopover>
+    </div>
   </div>
 </template>
