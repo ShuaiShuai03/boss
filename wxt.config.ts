@@ -7,11 +7,19 @@ import { version } from './package.json'
 
 const matches = ['*://zhipin.com/*', '*://*.zhipin.com/*']
 
+function shouldScanAutoImportFile(file: string) {
+  return !file.replaceAll('\\', '/').endsWith('utils/request.ts')
+}
+
 export default defineConfig({
   srcDir: 'src',
   outDirTemplate: '{{browser}}-mv{{manifestVersion}}',
   modules: ['@wxt-dev/module-vue'],
-  // imports: false,
+  imports: {
+    dirsScanOptions: {
+      fileFilter: shouldScanAutoImportFile,
+    },
+  },
 
   vite: () => ({
     define: {

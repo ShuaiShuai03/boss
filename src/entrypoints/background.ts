@@ -1,5 +1,7 @@
-import { browser, defineBackground } from '#imports'
-import { ProvideBackgroundAdapter, provideBackgroundCounter } from '@/message/background'
+import { browser } from 'wxt/browser'
+import { defineBackground } from 'wxt/utils/define-background'
+
+import { ProvideBackgroundAdapter, provideBackgroundCounter } from '../message/background'
 
 const zhipinTabUrls = ['*://zhipin.com/*', '*://*.zhipin.com/*']
 

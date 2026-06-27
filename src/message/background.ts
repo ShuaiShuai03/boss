@@ -1,11 +1,10 @@
 import type { Adapter, Message, OnMessage, SendMessage } from 'comctx'
 import { defineProxy } from 'comctx'
-
-import type { Browser } from '#imports'
-import { browser } from '#imports'
-import type { ResponseType } from '@/utils/request'
+import { type Browser, browser } from 'wxt/browser'
 
 export const userKey = 'local:conf-user'
+
+type BackgroundResponseType = 'text' | 'json' | 'arraybuffer' | 'blob' | 'document' | 'stream'
 
 export interface BackgroundRawResponse {
   status: number
@@ -28,7 +27,7 @@ export class BackgroundCounter {
     url: string
     data: RequestInit
     timeout: number
-    responseType: ResponseType
+    responseType: BackgroundResponseType
   }) {
     console.log('request', args)
     const signal = AbortSignal.timeout(args.timeout * 1000)
