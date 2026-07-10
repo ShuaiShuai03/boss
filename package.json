@@ -10,6 +10,7 @@
     "dev:edge": "wxt -b edge",
     "dev:firefox": "wxt -b firefox",
     "postinstall": "wxt prepare",
+    "test": "node scripts/verify-boss-identity.mjs && node scripts/verify-chat-socket-entrypoint.mjs && node scripts/verify-ai-reply-realtime.mjs",
     "check": "vue-tsc --noEmit",
     "build": "run-p build:chrome build:firefox build:edge",
     "build:chrome": "wxt build -b chrome",

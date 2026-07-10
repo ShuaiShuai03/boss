@@ -1,6 +1,7 @@
-import { defineContentScript } from '#imports'
+import { defineUnlistedScript } from '#imports'
 import { decodeAiReplySocketPayload } from '@/features/aiReply/realtime'
 import { AI_REPLY_DOM_MESSAGE_EVENT, type AiReplyChatEventPayload } from '@/features/aiReply/types'
+import { resolveBossUser } from '@/utils/bossIdentity'
 
 function shouldCaptureChatSocket(url: string | URL | undefined) {
   return url != null && url.toString().includes('chatws')
@@ -55,11 +56,11 @@ async function socketDataToBytes(data: unknown): Promise<Uint8Array | null> {
 }
 
 function currentUser() {
-  const page = window._PAGE
+  const user = resolveBossUser(window._PAGE)
   return {
-    uid: String(page?.uid ?? page?.userId ?? page?.encryptUserId ?? ''),
-    name: page?.showName ?? page?.name,
-    avatar: page?.largeAvatar ?? page?.tinyAvatar,
+    uid: user.protocolUserId ?? '',
+    name: user.name,
+    avatar: user.avatar,
   }
 }
 
@@ -118,12 +119,6 @@ function hookChatSocket() {
   }) as typeof WebSocket
 }
 
-export default defineContentScript({
-  matches: ['*://zhipin.com/*', '*://*.zhipin.com/*'],
-  world: 'MAIN',
-  allFrames: true,
-  runAt: 'document_start',
-  main() {
-    hookChatSocket()
-  },
+export default defineUnlistedScript(() => {
+  hookChatSocket()
 })

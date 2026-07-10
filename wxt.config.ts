@@ -119,7 +119,7 @@ export default defineConfig({
     permissions: ['storage', 'notifications'],
     web_accessible_resources: [
       {
-        resources: ['boss.js'],
+        resources: ['boss.js', 'chat-socket-main-world.js'],
         matches,
       },
     ],
