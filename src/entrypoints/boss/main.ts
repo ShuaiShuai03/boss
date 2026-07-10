@@ -9,6 +9,7 @@ import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { Message } from '@/composables/useWebSocket/protobuf'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { run } from '@/index'
+import { resolveBossUser, waitForBossUser } from '@/utils/bossIdentity'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
@@ -178,23 +179,34 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   get uid() {
-    // return window?.Cookie.get('bst') // token ?
-    return window._PAGE.encryptUserId
+    return this._resolveUser().accountId ?? ''
+  }
+
+  get protocolUserId() {
+    return this._resolveUser().protocolUserId ?? ''
   }
 
   get userInfo() {
+    const user = this._resolveUser()
     return {
-      id: window._PAGE.encryptUserId,
-      name: window._PAGE.showName ?? window._PAGE.name,
-      avatar: window._PAGE.largeAvatar ?? window._PAGE.tinyAvatar ?? '',
+      id: user.accountId ?? '',
+      name: user.name,
+      avatar: user.avatar,
     }
+  }
+
+  _resolveUser() {
+    return resolveBossUser(window._PAGE, this.rootVue?.$store?.state?.userInfo)
   }
 
   static async new() {
     const ctx = new BossHelperCtx()
     ctx.rootVue = await getRootVue()
     ctx.workflow = await bossWorkflow(ctx)
-    if (!ctx.uid) {
+    const user = await waitForBossUser(() => [window._PAGE, ctx.rootVue?.$store?.state?.userInfo], {
+      requireProtocolUserId: true,
+    })
+    if (!user.accountId || !user.protocolUserId) {
       useToast().add({
         color: 'error',
         title: '未获取到用户ID，可能会出现奇怪bug, 请尝试刷新页面或反馈',
@@ -241,6 +253,14 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async start() {
+    if (!this.uid || !this.protocolUserId) {
+      await this.notification('未获取到用户ID，请刷新页面后重试', {
+        toast: {
+          color: 'error',
+        },
+      })
+      return
+    }
     if (!this.conf.formData.autoApplyEnabled.value) {
       await this.notification('自动投递未启用', {
         toast: {
@@ -280,8 +300,12 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     data.state.bossData = bossData
     data.state.message = content
 
+    if (!this.protocolUserId) {
+      throw new GreetError('未获取到当前用户 uid')
+    }
+
     const message = new Message({
-      form_uid: String(window._PAGE.uid ?? window._PAGE.userId ?? this.uid),
+      form_uid: this.protocolUserId,
       to_uid: String(bossData.data.bossId),
       to_name: bossData.data.encryptBossId,
       friend_source: bossData.data.bossSource,
@@ -300,9 +324,12 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     if (!target.toUid) {
       throw new Error('缺少 Boss/HR 用户 ID')
     }
+    if (!this.protocolUserId) {
+      throw new Error('未获取到当前用户 uid')
+    }
 
     const message = new Message({
-      form_uid: String(window._PAGE.uid ?? window._PAGE.userId ?? this.uid),
+      form_uid: this.protocolUserId,
       to_uid: target.toUid,
       to_name: target.toName ?? '',
       friend_source: target.friendSource,

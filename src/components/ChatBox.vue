@@ -105,7 +105,9 @@ const canSendDraft = computed(
   () => !!selectedConversation.value && !!draftText.value.trim() && !draftLoading.value,
 )
 const draftGenerateLabel = computed(() =>
-  selectedDraft.value?.pendingIncomingId || selectedDraft.value?.text ? '重新生成草稿' : '生成回复草稿',
+  selectedDraft.value?.pendingIncomingId || selectedDraft.value?.text
+    ? '重新生成草稿'
+    : '生成回复草稿',
 )
 const draftPlaceholder = computed(() => {
   if (!selectedConversation.value) {
@@ -417,7 +419,7 @@ async function sendDraft() {
       text,
       timestamp: Date.now(),
       sender: {
-        uid: helper.userInfo.id,
+        uid: helper.protocolUserId,
         name: helper.userInfo.name,
         avatar: helper.userInfo.avatar,
       },

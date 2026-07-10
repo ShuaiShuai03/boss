@@ -81,7 +81,8 @@ export function normalizeAiReplyProtocolMessages(
   protocol: AiReplyProtocol,
   context: AiReplyNormalizeContext = {},
 ): AiReplyRealtimeMessage[] {
-  const currentUserId = context.currentUserId
+  const currentUserId = valueToString(context.currentUserId).trim()
+  if (!currentUserId) return []
   const result: AiReplyRealtimeMessage[] = []
 
   for (const message of protocol.messages ?? []) {

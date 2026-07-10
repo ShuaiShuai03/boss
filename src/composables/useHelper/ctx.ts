@@ -87,6 +87,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract sendMessage(jobKey: string, msg: UserContent): Promise<void>
   abstract sendChatMessage(target: AiReplySendTarget): Promise<void>
   abstract get uid(): string
+  abstract get protocolUserId(): string
   abstract get userInfo(): {
     id: string
     name: string

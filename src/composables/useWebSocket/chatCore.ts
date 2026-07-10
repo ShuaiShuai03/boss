@@ -1,3 +1,4 @@
+import { bossProtocolUserIdToSafeNumber } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
 import type { BossHelperChatMessageArgs } from './chatBridge'
@@ -153,10 +154,10 @@ async function loadGeekChatCoreScript(version: GeekChatCoreVersion) {
 }
 
 async function initGeekChatClient() {
-  const userId = window._PAGE?.uid ?? window._PAGE?.userId
+  const userId = bossProtocolUserIdToSafeNumber(window._PAGE?.uid ?? window._PAGE?.userId)
   const token = window._PAGE?.token
 
-  if (userId == null) {
+  if (!userId) {
     throw new Error('未获取到当前用户 uid')
   }
 
@@ -239,6 +240,10 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
   if (!content) {
     throw new Error('打招呼内容为空')
   }
+  const recipientUid = bossProtocolUserIdToSafeNumber(args.to_uid)
+  if (!recipientUid) {
+    throw new Error('Boss/HR 用户 ID 超出聊天 SDK 支持范围')
+  }
 
   const client = await ensureGeekChatClient()
   const clientMid = Date.now()
@@ -246,7 +251,7 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
 
   client.sendMessage(
     {
-      uid: Number(args.to_uid),
+      uid: recipientUid,
       friendSource: args.friend_source ?? 0,
       encryptUid: args.to_name,
       encryptGid: '',

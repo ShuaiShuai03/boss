@@ -7,6 +7,7 @@ import {
   PublishError,
   RateLimitError,
 } from '@/composables/useApplying/deliverError'
+import { normalizeBossOpaqueUserId, normalizeBossProtocolUserId } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
 import type { BossZpBossData, BossZpDetailData } from './types'
@@ -53,12 +54,20 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function getBossToken() {
+  try {
+    return window.Cookie?.get?.('bst') ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export async function requestDetail(params: { securityId: string; lid: string }): Promise<{
   code: number
   message: string
   zpData: BossZpDetailData
 }> {
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -93,7 +102,7 @@ export async function sendPublishReq(
     ..._params,
   }).forEach(([key, value]) => url.searchParams.append(key, String(value)))
 
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -170,7 +179,7 @@ export async function requestBossData(
   }
   const url = 'https://www.zhipin.com/wapi/zpchat/geek/getBossData'
   // userInfo.value?.token 不相等！
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -205,7 +214,22 @@ export async function requestBossData(
       }
       throw new GreetError(`状态错误:${res.message}`)
     }
-    return res.zpData
+    if (!normalizeBossProtocolUserId(res.zpData?.data?.bossId)) {
+      throw new GreetError('Boss 数据缺少有效用户 ID')
+    }
+    const encryptBossId =
+      normalizeBossOpaqueUserId(res.zpData?.data?.encryptBossId) ??
+      normalizeBossOpaqueUserId(job.encryptUserId)
+    if (!encryptBossId) {
+      throw new GreetError('Boss 数据缺少加密用户 ID')
+    }
+    return {
+      ...res.zpData,
+      data: {
+        ...res.zpData.data,
+        encryptBossId,
+      },
+    }
   } catch (e: any) {
     if (e instanceof GreetError) {
       throw e

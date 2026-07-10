@@ -1,12 +1,12 @@
-import { counter } from '@/message'
-import { renderTemplate } from '@/utils/ai'
-import { HelperContext } from '~/composables/useHelper'
 import {
   AI_REPLY_DOM_MESSAGE_EVENT,
   type AiReplyChatEventPayload,
   type AiReplyPeer,
   type AiReplyRealtimeMessage,
 } from '@/features/aiReply/types'
+import { counter } from '@/message'
+import { renderTemplate } from '@/utils/ai'
+import { HelperContext } from '~/composables/useHelper'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import { defineTaskHandler, JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
@@ -62,8 +62,13 @@ function seedAiReplyFromGreeting<C extends HelperContext<C, T, S>, T, S>(
   }
 
   const source = Number(bossData?.bossSource ?? 0)
+  const protocolUserId = ctx.helper.protocolUserId
+  if (!protocolUserId) {
+    logger.warn('AI 回复会话初始化失败：缺少当前用户 ID', { jobKey: data.jobData.key })
+    return
+  }
   const user: AiReplyPeer = {
-    uid: String(window._PAGE.uid ?? window._PAGE.userId ?? ctx.helper.uid),
+    uid: protocolUserId,
     name: ctx.helper.userInfo.name,
     avatar: ctx.helper.userInfo.avatar,
   }

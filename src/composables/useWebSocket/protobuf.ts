@@ -1,3 +1,5 @@
+import { normalizeBossProtocolUserId } from '@/utils/bossIdentity'
+
 import { type BossHelperChatMessageArgs } from './chatBridge'
 import { sendChatByGeekChatCore } from './chatCore'
 import { mqtt } from './mqtt'
@@ -58,7 +60,15 @@ export class Message {
   args: MessageArgs
 
   constructor(args: MessageArgs) {
-    this.args = args
+    const formUid = normalizeBossProtocolUserId(args.form_uid)
+    const toUid = normalizeBossProtocolUserId(args.to_uid)
+    if (!formUid) {
+      throw new TypeError('当前用户 ID 无效')
+    }
+    if (!toUid) {
+      throw new TypeError('Boss/HR 用户 ID 无效')
+    }
+    this.args = { ...args, form_uid: formUid, to_uid: toUid }
 
     const now = Date.now()
     const mid = now + 68256432452609
@@ -66,11 +76,11 @@ export class Message {
       messages: [
         {
           from: {
-            uid: args.form_uid,
+            uid: formUid,
             source: 0,
           },
           to: {
-            uid: args.to_uid,
+            uid: toUid,
             name: args.to_name,
             source: args.friend_source ?? 0,
           },
