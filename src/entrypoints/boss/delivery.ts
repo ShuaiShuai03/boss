@@ -16,7 +16,7 @@ function detailMatchesJob(detail: BossZpDetailData | undefined, job: BossZpJobIt
   return (
     detail != null &&
     (detail.lid === job.lid ||
-      detail.jobInfo.encryptId === job.encryptJobId ||
+      detail.jobInfo?.encryptId === job.encryptJobId ||
       detail.securityId === job.securityId)
   )
 }
