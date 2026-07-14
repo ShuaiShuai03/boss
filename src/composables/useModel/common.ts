@@ -27,7 +27,7 @@ export const other: LLMInfo<other>['other'] = {
       value: DEFAULT_AI_REQUEST_TIMEOUT_MS,
       type: 'input',
       format: 'number',
-      desc: 'GPT请求的超时时间，单位毫秒。超时后不会进行重试，将跳过岗位。默认180000毫秒 / 3分钟',
+      desc: 'AI 请求的超时时间，单位毫秒。超时后不会自动重试，并会跳过当前岗位。默认 180000 毫秒（3 分钟）。',
     },
     // background: {
     //   value: false,
@@ -40,8 +40,8 @@ export const other: LLMInfo<other>['other'] = {
 }
 
 export const desc = {
-  stream: '推荐开启,可以实时查看gpt返回的响应,但如果你的模型不支持,请关闭',
-  max_tokens: '用处不大一般不需要调整',
+  stream: '模型服务支持流式响应时可开启，以便实时显示生成内容；不支持时请关闭。',
+  max_tokens: '限制单次生成的最大输出长度，一般保持模型默认值即可。',
   temperature: '较高的数值会使输出更加随机，而较低的数值会使其更加集中和确定',
   top_p: '影响输出文本的多样性，取值越大，生成文本的多样性越强',
 }

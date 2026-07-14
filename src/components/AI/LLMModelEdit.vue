@@ -56,8 +56,8 @@ const modelItems = computed(() =>
 )
 
 const testExample = {
-  Json: [
-    `我现在失业了,想找一个新工作,但岗位需求良莠不齐,我需要你对下面的岗位进行评分,我想要双休的,最好可以早九晚五,8小时的.不需要外出,不需要和客户聊天,不需要推销,最后给我Json格式的zifui
+  JSON: [
+    `我正在寻找新工作，需要你对下面的岗位进行评分。我希望双休、每天工作 8 小时，不需要外出、客户沟通或销售工作。请只返回符合下方接口定义的 JSON 对象。
 \`\`\` 岗位信息
 周末双休，早十晚七，带薪年假至少半个月，法定节假日正常放假，购买社保，带薪培训。
 网络销售!网络销售!不要再问我是不是纯电销啦!也不是贷款!!!公司的小伙伴很友好，面试结果当天就通知!没有kpi!放心咨询!
@@ -103,7 +103,7 @@ interface UserInfo {
 
 接下来开始分析：const userInfo=`,
   ],
-  弱智: [
+  问答: [
     '请问你怎么看待鲁迅打周树人呢?',
     '小于90度的是锐角，等于90度的是直角，大于90度的是钝角\n开水有100度，所以开水是钝角吗？',
   ],
@@ -320,8 +320,8 @@ onBeforeUnmount(() => {
         </template>
       </UFieldGroup>
       <div class="grid grid-cols-2 gap-3">
-        <UTextarea v-model="testIn" :rows="9" placeholder="输入提示词" />
-        <UTextarea :model-value="testOut" :rows="9" placeholder="GPT响应" />
+        <UTextarea v-model="testIn" :rows="9" placeholder="输入用于验证模型能力的提示词" />
+        <UTextarea :model-value="testOut" :rows="9" placeholder="AI 响应" />
       </div>
       <UAlert
         v-if="testStatus === 'success'"

@@ -29,7 +29,17 @@ async function change(v: Partial<FormDataAi>) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3" data-help="AI 配置">
+  <div
+    class="flex flex-col gap-3"
+    data-help="先配置模型，再按需启用 AI 招呼语、岗位过滤和后续回复。"
+  >
+    <UAlert
+      color="info"
+      variant="subtle"
+      icon="i-lucide-sparkles"
+      title="AI 功能配置"
+      description="先添加一个兼容 OpenAI 接口的模型，再分别设置招呼语、岗位过滤和后续回复的提示词。"
+    />
     <div class="flex flex-wrap gap-3">
       <FormSwitch
         :label="formInfoData.aiGreeting.label"
@@ -73,7 +83,7 @@ async function change(v: Partial<FormDataAi>) {
       <LLMModelManage>
         <UButton
           color="primary"
-          data-help="配置需要使用的LLM大模型"
+          data-help="添加或编辑兼容 OpenAI 接口的模型，并验证连接是否可用。"
           :loading="model.isLoading.value"
           :disabled="conf.isLoading.value || model.isLoading.value"
         >

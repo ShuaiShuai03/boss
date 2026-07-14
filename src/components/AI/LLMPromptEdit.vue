@@ -399,7 +399,10 @@ watch(testDialog, (opened) => {
   >
     <template #body>
       <div v-if="data === 'aiFiltering'">
-        <UFormField label="过滤分数">
+        <UFormField
+          label="最低投递分数"
+          description="AI 综合评分低于此值时跳过岗位；达到或超过此值时继续投递流程。"
+        >
           <UInputNumber v-model="score" :min="-100" :max="100" size="sm" placeholder="请输入分数" />
         </UFormField>
       </div>
@@ -409,7 +412,7 @@ watch(testDialog, (opened) => {
           <UButton color="primary" @click="addMessage"> 添加消息 </UButton>
         </div>
         <div class="flex gap-2">
-          <UButton color="info" @click="inputExample"> 填入示例值 </UButton>
+          <UButton color="info" @click="inputExample"> 恢复推荐模板 </UButton>
           <USelectMenu
             v-model="currentModel"
             :items="model.modelData.value"
@@ -442,23 +445,30 @@ watch(testDialog, (opened) => {
           </USelectMenu>
         </div>
       </div>
-      <div v-pre>
-        <Alert v-if="currentModel?.startsWith('vip-')" id="vip-alert" title="注意" type="warning">
-          会员模型暂时不支持输出 思考过程, 比如deepseekR1，但是不影响模型能力
-        </Alert>
-        使用 {{}} 来渲染变量。
-        <ULink
-          to="https://github.com/Ocyss/boss-helper/blob/master/src/types/bossData.d.ts"
-          target="_blank"
+      <div class="rounded-md bg-elevated p-3 text-sm text-muted">
+        <Alert
+          v-if="currentModel?.startsWith('vip-')"
+          id="vip-alert"
+          title="模型输出说明"
+          color="info"
         >
-          变量表
-        </ULink>
-        <br />
-        推荐阅读
-        <ULink to="https://langgptai.feishu.cn/wiki/RXdbwRyASiShtDky381ciwFEnpe" target="_blank">
-          《LangGPT》
-        </ULink>
-        的提示词文档学习 ( 示例提示词写的并不好,欢迎AI大佬来提pr )
+          部分模型不会单独返回思考过程，但不影响最终结果。
+        </Alert>
+        <p>
+          使用
+          <code class="text-default" v-text="'{{ jobData.jobName }}'"></code>
+          这样的变量插入岗位或流程数据；可在
+          <ULink
+            to="https://github.com/Ocyss/boss-helper/blob/master/src/types/bossData.d.ts"
+            target="_blank"
+          >
+            变量表
+          </ULink>
+          中查看可用字段。
+        </p>
+        <p class="mt-1">
+          建议保留 system 消息中的输出格式和安全约束，再根据个人经历、求职偏好和表达风格调整内容。
+        </p>
       </div>
       <div
         v-if="data === 'aiGreeting'"
@@ -506,7 +516,7 @@ watch(testDialog, (opened) => {
             :disabled="saving || optimizing || model.isLoading.value"
             @click="optimizeSystemPrompt"
           >
-            AI 优化 System Prompt
+            AI 优化系统提示词
           </UButton>
         </div>
       </div>

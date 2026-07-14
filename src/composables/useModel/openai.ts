@@ -57,7 +57,7 @@ export type OpenaiLLMConf = LLMConf<
 const info: LLMInfo<OpenaiLLMConf> = {
   mode: {
     mode: 'openai',
-    label: 'OpenAI',
+    label: 'OpenAI 兼容接口',
   },
   avatar: {
     type: 'input',
@@ -65,7 +65,7 @@ const info: LLMInfo<OpenaiLLMConf> = {
     required: true,
   },
   base_url: {
-    desc: '可使用中转/代理API，前提是符合 OpenAI 规范。可填写 Base URL，也可粘贴 /chat/completions 或 /models 完整端点，插件会自动修正。',
+    desc: '填写 OpenAI 或兼容服务的 Base URL。也可以粘贴 /chat/completions、/responses 或 /models 完整端点，插件会自动规范化地址。',
     type: 'input',
     format: 'url',
     config: {
@@ -73,7 +73,11 @@ const info: LLMInfo<OpenaiLLMConf> = {
     },
     required: true,
   },
-  api_key: { type: 'input', required: true },
+  api_key: {
+    type: 'input',
+    required: true,
+    desc: '用于访问模型服务的 API Key，仅保存在浏览器扩展本地存储中。',
+  },
   model: {
     config: {
       placeholder: '先填写 URL/API Key 自动获取，或手动输入模型名',
@@ -87,21 +91,19 @@ const info: LLMInfo<OpenaiLLMConf> = {
   responses: {
     value: false,
     type: 'switch',
-    desc: '默认使用ChatCompletions',
+    desc: '服务明确支持 OpenAI Responses API 时开启；默认使用兼容性更广的 Chat Completions API。',
   },
   other,
   advanced: {
     label: '高级配置',
     alert: 'warning',
-    desc: '小白勿动',
+    desc: '按模型服务的能力说明调整；不确定时保持默认即可。',
     value: {
       json: {
+        label: '原生 JSON 模式',
         value: true,
         type: 'switch',
-        desc: '仅支持较新的模型,会强制gpt返回json格式,效果好一点,能有效减少响应解析错误',
-        config: {
-          disabled: true,
-        },
+        desc: '模型服务明确支持原生 JSON 模式时开启。AI 过滤会请求严格 JSON；未开启时使用兼容文本解析。',
       },
       stream: {
         value: false,

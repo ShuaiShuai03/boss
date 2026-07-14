@@ -121,15 +121,15 @@ export const formInfoData: FormInfoData = {
   aiGreeting: {
     label: 'AI招呼语',
     'data-help':
-      '即使前面招呼语开了也不会发送，只会发送AI生成的招呼语，让gpt来打招呼真是太棒了，毕竟开场白很重要。',
+      '根据岗位信息和求职者背景生成个性化招呼语。启用后会替代自定义招呼语，并可继续生成后续回复草稿。',
   },
   aiFiltering: {
     label: 'AI过滤',
-    'data-help': '根据工作内容让gpt分析过滤，真是太稳健了，不放过任何一个垃圾',
+    'data-help': '根据岗位信息、求职者背景和评分规则评估匹配度，低于最低投递分数的岗位会自动跳过。',
   },
   aiReply: {
     label: 'AI回复',
-    'data-help': '万一消息太多，回不过来了呢，也许能和AiHR聊到地球爆炸？魔法击败魔法',
+    'data-help': '结合岗位信息和完整聊天上下文生成可编辑的回复草稿，确认后再发送给 HR/BOSS。',
   },
   record: {
     label: '内容记录',

@@ -3,7 +3,6 @@ import {
   ChatState,
   ChatStatus,
   ModelMessage,
-  Output,
   ToolLoopAgent,
   UIMessage,
   createIdGenerator,
@@ -18,6 +17,7 @@ import { sanitizeErrorMessage } from '@/utils/sensitive'
 import { ModelConf } from '.'
 import { WorkflowData } from '../useApplying/type'
 import { HelperContext } from '../useHelper'
+import { createAgentOutput } from './agent-output'
 import { getEffectiveAiTimeoutMs } from './common'
 import { openai } from './openai'
 
@@ -219,7 +219,7 @@ ${data.jobData.jobDescription}`,
 
     const agent = new ToolLoopAgent({
       model: openai.createModel(conf.data),
-      output: opt?.json ? Output.json() : Output.text(),
+      output: createAgentOutput(Boolean(opt?.json), conf.data.advanced.json),
       allowSystemInMessages: true,
       temperature: conf.data.advanced.temperature,
       topP: conf.data.advanced.top_p,

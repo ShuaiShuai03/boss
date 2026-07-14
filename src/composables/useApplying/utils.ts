@@ -2,12 +2,105 @@ import { ALL, parse } from 'partial-json'
 
 type FormDataRange = [number, number, boolean]
 
-function parseGptJson<T = any>(json: string): Partial<T> | null {
-  const match = json.match(/```json(.+?)```/s)
-  if (match) {
-    json = match[1]
+interface FilteringItem {
+  reason: string
+  score: number
+}
+
+interface FilteringResponse {
+  negative: FilteringItem[]
+  positive: FilteringItem[]
+}
+
+function extractBalancedJsonValues(content: string) {
+  const values: string[] = []
+
+  for (let start = 0; start < content.length; start++) {
+    const opening = content[start]
+    if (opening !== '{' && opening !== '[') continue
+
+    const stack: string[] = []
+    let inString = false
+    let escaped = false
+
+    for (let index = start; index < content.length; index++) {
+      const char = content[index]
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (char === '"') {
+        inString = true
+      } else if (char === '{' || char === '[') {
+        stack.push(char)
+      } else if (char === '}' || char === ']') {
+        const expected = char === '}' ? '{' : '['
+        if (stack.at(-1) !== expected) break
+        stack.pop()
+        if (stack.length === 0) {
+          values.push(content.slice(start, index + 1))
+          break
+        }
+      }
+    }
   }
-  return parse(json, ALL)
+
+  return values
+}
+
+function jsonCandidates(content: string) {
+  const candidates: string[] = []
+  const add = (value: string) => {
+    const trimmed = value.trim()
+    if (trimmed && !candidates.includes(trimmed)) candidates.push(trimmed)
+  }
+
+  for (const match of content.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    add(match[1])
+  }
+  add(content)
+  for (const value of extractBalancedJsonValues(content)) add(value)
+
+  return candidates
+}
+
+function isFilteringItem(value: unknown): value is FilteringItem {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    typeof (value as FilteringItem).reason === 'string' &&
+    typeof (value as FilteringItem).score === 'number' &&
+    Number.isFinite((value as FilteringItem).score)
+  )
+}
+
+function parseFilteringResponse(content: string): FilteringResponse | null {
+  for (const candidate of jsonCandidates(content)) {
+    try {
+      const value = parse(candidate, ALL) as unknown
+      if (
+        value != null &&
+        typeof value === 'object' &&
+        Array.isArray((value as FilteringResponse).negative) &&
+        (value as FilteringResponse).negative.every(isFilteringItem) &&
+        Array.isArray((value as FilteringResponse).positive) &&
+        (value as FilteringResponse).positive.every(isFilteringItem)
+      ) {
+        return value as FilteringResponse
+      }
+    } catch {
+      // Try the next JSON candidate in the model response.
+    }
+  }
+
+  return null
 }
 
 export function rangeMatchFormat(v: FormDataRange, unit: string): string {
@@ -112,20 +205,8 @@ export function evaluateKeywordFilter(
 }
 
 export function parseFiltering(content: string) {
-  interface Item {
-    reason: string
-    score: number
-  }
-  let res: Partial<{
-    negative: Item[]
-    positive: Item[]
-  }> | null = null
-  try {
-    res = parseGptJson<{
-      negative: Item[]
-      positive: Item[]
-    }>(content)
-  } catch {
+  const res = parseFilteringResponse(content)
+  if (!res) {
     return {
       res: null,
       message: '无法解析模型输出',
@@ -137,16 +218,16 @@ export function parseFiltering(content: string) {
     }
   }
 
-  const hand = (acc: { score: number; reason: string }, curr: Item) => ({
+  const hand = (acc: { score: number; reason: string }, curr: FilteringItem) => ({
     score: acc.score + Math.abs(curr.score),
     reason: `${acc.reason}\n${curr.reason}/(${Math.abs(curr.score)}分)`,
   })
   const data = {
-    negative: res?.negative?.reduce(hand, { score: 0, reason: '' }),
-    positive: res?.positive?.reduce(hand, { score: 0, reason: '' }),
+    negative: res.negative.reduce(hand, { score: 0, reason: '' }),
+    positive: res.positive.reduce(hand, { score: 0, reason: '' }),
   }
 
-  const rating = (data?.positive?.score ?? 0) - (data?.negative?.score ?? 0)
+  const rating = data.positive.score - data.negative.score
 
   const message = `分数${rating}\n消极:${data?.negative?.reason}\n\n积极:${data?.positive?.reason}`
 
