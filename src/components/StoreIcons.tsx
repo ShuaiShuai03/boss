@@ -1,15 +1,16 @@
+import { Icon } from '@iconify/vue'
 import type { JSX } from 'vue/jsx-runtime'
 
 export function ChromeStore() {
-  return <UIcon class="size-12" name="i-logos-chrome-web-store" />
+  return <Icon aria-hidden="true" class="size-12" icon="logos:chrome-web-store" />
 }
 
 export function EdgeStore() {
-  return <UIcon class="size-12" name="i-logos-microsoft-edge" />
+  return <Icon aria-hidden="true" class="size-12" icon="logos:microsoft-edge" />
 }
 
 export function FirefoxStore() {
-  return <UIcon class="size-12" name="i-logos-firefox" />
+  return <Icon aria-hidden="true" class="size-12" icon="logos:firefox" />
 }
 
 export function CrxStore() {

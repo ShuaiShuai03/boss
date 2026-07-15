@@ -58,6 +58,14 @@ export class ContentCounter implements BackgroundCounter {
     return this.background.fetch(...args)
   }
 
+  async sessionStorageGet<T>(key: string, defaultValue: T) {
+    return this.background.sessionStorageGet(key, defaultValue)
+  }
+
+  async sessionStorageSet<T>(key: string, value: T) {
+    return this.background.sessionStorageSet(key, value)
+  }
+
   async storageGet<T>(key: string, defaultValue: T): Promise<T>
   async storageGet<T>(key: string): Promise<T | null>
   async storageGet<T>(key: string, defaultValue?: T): Promise<T | null> {

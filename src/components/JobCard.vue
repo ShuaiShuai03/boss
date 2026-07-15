@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, useId } from 'vue'
 
-import { JobStatus } from '@/composables/useApplying/type'
 import { JobData, useHelper } from '@/composables/useHelper'
+
+import { jobStatusTokens } from './jobStatusTokens'
 
 const helper = useHelper()
 
@@ -15,35 +16,18 @@ const jobResult = computed(() => {
   return helper.jobResultMaps.get(props.job.key)
 })
 
-const stateMaps: Record<JobStatus, string> = {
-  pending: '#CECECE',
-  wait: '#CECECE',
-  error: '#e74c3c',
-  warn: '#f39c12',
-  success: '#2ecc71',
-  running: '#98F5F9',
-  request: '#3498db',
-  ai: '#9b59b6',
-}
-
 const jobStatus = computed(() => {
   const status = jobResult.value?.status ?? 'pending'
-  const data = stateMaps[status]
+  const token = jobStatusTokens[status]
   return {
     status,
-    color: data,
+    ...token,
     show: jobResult.value?.status !== 'pending' ? 'flex' : 'none',
   }
 })
 
 const showDescription = ref(false)
-
-async function showDescriptionHandler() {
-  showDescription.value = true
-  // if (props.job.card == null) {
-  //   await props.job.getCard()
-  // }
-}
+const descriptionId = useId()
 
 function getActiveTimeType(job: JobData): 'success' | 'warning' | 'error' {
   const activeTime = job.activeTime
@@ -63,7 +47,8 @@ function getActiveTimeType(job: JobData): 'success' | 'warning' | 'error' {
     class="job-card"
     :class="{ 'job-card-hover': hover }"
     :style="{
-      '--state-color': jobStatus.color,
+      '--state-background': jobStatus.background,
+      '--state-foreground': jobStatus.foreground,
       '--state-show': jobStatus.show,
     }"
     v-if="job"
@@ -76,15 +61,10 @@ function getActiveTimeType(job: JobData): 'success' | 'warning' | 'error' {
     <h3 class="card-salary">
       {{ job.salary }}
     </h3>
-    <div
-      v-show="showDescription"
-      class="card-content"
-      :title="job.jobDescription"
-      @click="showDescription = false"
-    >
+    <div v-show="showDescription" :id="descriptionId" class="card-content" :title="job.jobDescription">
       {{ job.jobDescription }}
     </div>
-    <div v-show="!showDescription" class="card-content" @click="showDescriptionHandler">
+    <div v-show="!showDescription" class="card-content">
       <div>
         <div class="flex flex-wrap gap-1">
           <UBadge v-for="tag in job.skills" :key="tag" size="sm" variant="subtle" color="warning">
@@ -105,6 +85,15 @@ function getActiveTimeType(job: JobData): 'success' | 'warning' | 'error' {
         {{ job.welfareList.join(',') }}
       </div>
     </div>
+    <button
+      type="button"
+      class="card-details-toggle"
+      :aria-expanded="showDescription"
+      :aria-controls="descriptionId"
+      @click="showDescription = !showDescription"
+    >
+      {{ showDescription ? '收起职位详情' : '展开职位详情' }}
+    </button>
 
     <div v-if="job.activeTime || job.activeTimeStr" class="active-time-tag">
       <UBadge :color="getActiveTimeType(job)" variant="subtle">
@@ -126,6 +115,9 @@ function getActiveTimeType(job: JobData): 'success' | 'warning' | 'error' {
       class="card-status flex-row gap-2 justify-center items-center"
       v-if="jobResult"
       :title="jobResult?.reason || jobResult?.msg"
+      role="status"
+      aria-live="polite"
+      :aria-label="`岗位状态：${jobStatus.label}。${jobResult?.msg || jobResult?.reason || ''}`"
     >
       <UIcon v-if="jobStatus.status === 'running'" name="i-line-md-loading-twotone-loop" />
       <UIcon v-else-if="jobStatus.status === 'request'" name="i-svg-spinners-wifi-fade" />

@@ -526,19 +526,28 @@ watch(testDialog, (opened) => {
             <USelectMenu
               v-model="item.role"
               :items="role"
+              :aria-label="`第 ${index + 1} 条提示词消息角色`"
               :portal="promptModelRef?.parentElement ?? false"
               :content="{ side: 'right' }"
             />
             <UButton
               color="error"
               variant="outline"
+              :aria-label="`删除第 ${index + 1} 条提示词消息`"
               @click.prevent="removeMessage(item)"
               class="w-full"
             >
               删除
             </UButton>
           </div>
-          <UTextarea v-model="item.content" autoresize :rows="2" :maxrows="6" class="flex-1" />
+          <UTextarea
+            v-model="item.content"
+            autoresize
+            :rows="2"
+            :maxrows="6"
+            class="flex-1"
+            :aria-label="`第 ${index + 1} 条提示词消息内容`"
+          />
         </div>
       </div>
       <UAlert
@@ -547,6 +556,7 @@ watch(testDialog, (opened) => {
         variant="subtle"
         title="保存失败"
         :description="saveError"
+        role="alert"
       />
     </template>
 

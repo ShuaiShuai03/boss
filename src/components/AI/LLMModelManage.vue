@@ -11,26 +11,20 @@ import CreateLLM from './LLMModelEdit.vue'
 
 const modelStore = useModel()
 const createBoxShow = ref(false)
-const toast = useToast()
 const open = ref(false)
 
-function del(d: ModelConf) {
-  modelStore.modelData.value = modelStore.modelData.value.filter((v) => d.key !== v.key)
-  toast.add({
-    title: '删除成功',
-    color: 'success',
-  })
+async function del(d: ModelConf) {
+  await modelStore.mutateAndSave((models) => {
+    const index = models.findIndex((model) => model.key === d.key)
+    if (index >= 0) models.splice(index, 1)
+  }, '模型已删除并保存')
 }
 
-function copy(d: ModelConf) {
-  d = jsonClone(d)
-  d.key = new Date().getTime().toString()
-  d.name = `${d.name} 副本`
-  modelStore.modelData.value.push(d)
-  toast.add({
-    title: '复制成功',
-    color: 'success',
-  })
+async function copy(d: ModelConf) {
+  const copy = jsonClone(d)
+  copy.key = new Date().getTime().toString()
+  copy.name = `${copy.name} 副本`
+  await modelStore.mutateAndSave((models) => models.push(copy), '模型副本已创建并保存')
 }
 
 const createModelData = ref()
@@ -45,23 +39,25 @@ function newllm() {
   createBoxShow.value = true
 }
 
-function create(d: ModelConf) {
-  if (d.key) {
-    const old = modelStore.modelData.value.find((v) => v.key === d.key)
-    if (old) {
-      deepmerge(old, d, { clone: false })
+async function create(d: ModelConf) {
+  await modelStore.mutateAndSave((models) => {
+    if (d.key) {
+      const old = models.find((v) => v.key === d.key)
+      if (old) {
+        deepmerge(old, d, { clone: false })
+      } else {
+        d.key = new Date().getTime().toString()
+        models.push(d)
+      }
     } else {
       d.key = new Date().getTime().toString()
-      modelStore.modelData.value.push(d)
+      models.push(d)
     }
-  } else {
-    d.key = new Date().getTime().toString()
-    modelStore.modelData.value.push(d)
-  }
+  }, '模型已应用并保存')
   createBoxShow.value = false
 }
-async function close() {
-  await modelStore.initModel()
+
+function close() {
   open.value = false
 }
 
@@ -69,14 +65,11 @@ function exportllm() {
   exportJson(jsonClone(modelStore.modelData.value), 'Ai模型配置')
 }
 
-function importllm() {
-  importJson<ModelConf[]>().then((data) => {
-    modelStore.modelData.value = data
-    toast.add({
-      title: '导入成功, 请手动保存',
-      color: 'success',
-    })
-  })
+async function importllm() {
+  const data = await importJson<ModelConf[]>()
+  await modelStore.mutateAndSave((models) => {
+    models.splice(0, models.length, ...data)
+  }, '模型配置已导入并保存')
 }
 </script>
 
@@ -134,17 +127,10 @@ function importllm() {
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <UButton color="neutral" variant="outline" @click="close"> 取消 </UButton>
+        <UButton color="neutral" variant="outline" @click="close"> 完成 </UButton>
         <UButton color="success" @click="exportllm"> 导出 </UButton>
         <UButton color="success" @click="importllm"> 导入 </UButton>
         <UButton :disabled="modelStore.isLoading.value" @click="newllm"> 新建 </UButton>
-        <UButton
-          :loading="modelStore.isSaving.value"
-          :disabled="modelStore.isLoading.value"
-          @click="modelStore.saveModel"
-        >
-          保存
-        </UButton>
       </div>
     </template>
   </UModal>

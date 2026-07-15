@@ -1,4 +1,5 @@
 <script lang="tsx" setup>
+import UBadge from '@nuxt/ui/components/Badge.vue'
 import { computed, reactive } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'

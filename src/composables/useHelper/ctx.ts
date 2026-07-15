@@ -1,8 +1,7 @@
 import { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 import { extendRef } from '@vueuse/core'
 import { UserContent } from 'ai'
-import { Reactive, ref } from 'vue'
-import { Ref } from 'vue'
+import { computed, Reactive, ref, Ref } from 'vue'
 
 import { useConf } from '@/composables/conf'
 import { DeliveryWorkflow } from '@/composables/useApplying'
@@ -10,6 +9,8 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel/test'
+import { createExtensionStatisticsStore } from '@/composables/useStatistics'
+import { createInitializationGate } from '@/composables/initializationGate'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { logger } from '@/utils/logger'
 
@@ -18,10 +19,24 @@ import { Log, JobData, LogData } from './type'
 
 export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   netConf: Ref<NetConf | null>
-  netConfTimer: NodeJS.Timeout | null = null
+  netConfTimer: ReturnType<typeof setInterval> | null = null
   conf: ReturnType<typeof useConf>
   models: ReturnType<typeof useModel>
-  statistics: ReturnType<typeof useStatistics>
+  statistics: ReturnType<typeof createExtensionStatisticsStore>
+  private initializationGate = createInitializationGate(async (force) => {
+    await Promise.all([
+      this.conf.ensureInitialized(force),
+      this.models.ensureInitialized(force),
+      this.statistics.initialize(force),
+    ])
+  })
+  initializationStatus = this.initializationGate.initializationStatus
+  initializationError = this.initializationGate.initializationError
+  initializationReady = computed(() => this.initializationStatus.value === 'ready')
+
+  private viewDisposers = new Set<() => void>()
+  private disposers = new Set<() => void>()
+  private disposed = false
 
   chatModel: ChatModel
   workflow: DeliveryWorkflow<C, T, S> | null = null
@@ -43,7 +58,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   constructor() {
     this.conf = useConf()
     this.models = useModel()
-    this.statistics = useStatistics()
+    this.statistics = createExtensionStatisticsStore()
     this.currentJob = ref(null)
     this._logs = ref([])
     this.logs = extendRef(this._logs, {
@@ -93,6 +108,52 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     name: string
     avatar: string
   }
+
+  async ensureInitialized(force = false) {
+    return this.initializationGate.ensureInitialized(force)
+  }
+
+  registerViewDisposer(disposer: (() => void) | undefined) {
+    if (disposer) this.viewDisposers.add(disposer)
+    return disposer
+  }
+
+  disposeView() {
+    for (const disposer of this.viewDisposers) {
+      try {
+        disposer()
+      } catch (error) {
+        logger.warn('页面资源释放失败', error)
+      }
+    }
+    this.viewDisposers.clear()
+  }
+
+  registerDisposer(disposer: () => void) {
+    this.disposers.add(disposer)
+    return disposer
+  }
+
+  dispose() {
+    if (this.disposed) return
+    this.disposed = true
+    this.stop()
+    this.disposeView()
+    if (this.netConfTimer) {
+      clearInterval(this.netConfTimer)
+      this.netConfTimer = null
+    }
+    this.statistics.dispose()
+    for (const disposer of this.disposers) {
+      try {
+        disposer()
+      } catch (error) {
+        logger.warn('全局资源释放失败', error)
+      }
+    }
+    this.disposers.clear()
+  }
+
   initNetConf() {
     void initNetConf()
       .then((data) => {

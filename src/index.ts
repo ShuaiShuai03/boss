@@ -1,5 +1,6 @@
 import ui from '@nuxt/ui/vue-plugin'
 import { createApp } from 'vue'
+import type { App as VueApp, Component } from 'vue'
 
 import * as chat from '@/composables/useModel/test'
 
@@ -9,40 +10,90 @@ import { HelperContext, HelperKey } from './composables/useHelper'
 
 import AppStyle from '@/assets/main.css?inline'
 
+interface ViewContext {
+  disposeView(): void
+}
+
+const viewContexts = new WeakMap<HTMLElement, ViewContext>()
+
+export function createBossHelperJobElement<C extends HelperContext<C, T, S>, T, S>(
+  ctx: HelperContext<C, T, S>,
+) {
+  const element = document.createElement('boss-helper-job')
+  viewContexts.set(element, ctx)
+  return element
+}
+
 export async function run<C extends HelperContext<C, T, S>, T, S>(ctx: HelperContext<C, T, S>) {
-  function _connectedCallback(root: HTMLElement, App: any) {
-    const shadow = root.attachShadow({ mode: 'open' })
-    const style = document.createElement('style')
-    style.innerText = AppStyle
-    shadow.appendChild(style)
+  function mountApp(root: HTMLElement, component: Component, viewContext: ViewContext) {
+    const shadow = root.shadowRoot ?? root.attachShadow({ mode: 'open' })
+    let style = shadow.querySelector<HTMLStyleElement>('style[data-boss-helper-style]')
+    if (!style) {
+      style = document.createElement('style')
+      style.dataset.bossHelperStyle = 'true'
+      style.innerText = AppStyle
+      shadow.appendChild(style)
+    }
 
-    const container = document.createElement('div')
-    container.id = 'app-root'
-    shadow.appendChild(container)
+    let container = shadow.querySelector<HTMLDivElement>('#app-root')
+    if (!container) {
+      container = document.createElement('div')
+      container.id = 'app-root'
+      container.lang = 'zh-CN'
+      shadow.appendChild(container)
+    }
 
-    const app = createApp(App)
+    const app = createApp(component)
     app.use(ui)
-    app.provide(HelperKey, ctx as never)
+    app.provide(HelperKey, viewContext as never)
     app.mount(container)
+    return app
   }
 
-  customElements.define(
-    'boss-helper-job',
-    class extends HTMLElement {
-      connectedCallback() {
-        _connectedCallback(this, App)
-      }
-    },
-  )
+  if (!customElements.get('boss-helper-job')) {
+    customElements.define(
+      'boss-helper-job',
+      class extends HTMLElement {
+        private app: VueApp | null = null
+        private viewContext: ViewContext | null = null
 
-  customElements.define(
-    'boss-helper-menu',
-    class extends HTMLElement {
-      connectedCallback() {
-        _connectedCallback(this, AppMenu)
-      }
-    },
-  )
+        connectedCallback() {
+          if (this.app) return
+          this.viewContext = viewContexts.get(this) ?? ctx
+          this.app = mountApp(this, App, this.viewContext)
+        }
+
+        disconnectedCallback() {
+          this.app?.unmount()
+          this.app = null
+          this.viewContext?.disposeView()
+          this.viewContext = null
+        }
+      },
+    )
+  }
+
+  if (!customElements.get('boss-helper-menu')) {
+    customElements.define(
+      'boss-helper-menu',
+      class extends HTMLElement {
+        private app: VueApp | null = null
+
+        connectedCallback() {
+          if (!this.app) this.app = mountApp(this, AppMenu, ctx)
+        }
+
+        disconnectedCallback() {
+          this.app?.unmount()
+          this.app = null
+        }
+      },
+    )
+  }
+
+  const handlePageHide = () => ctx.dispose()
+  window.addEventListener('pagehide', handlePageHide, { once: true })
+  ctx.registerDisposer(() => window.removeEventListener('pagehide', handlePageHide))
   await ctx.onMount()
   logger.info('BossHelper加载成功', chat)
 }

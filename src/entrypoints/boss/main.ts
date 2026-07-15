@@ -8,35 +8,63 @@ import { HelperContext, JobData } from '@/composables/useHelper'
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { Message } from '@/composables/useWebSocket/protobuf'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
-import { run } from '@/index'
+import { createBossHelperJobElement, run } from '@/index'
 import { resolveBossUser, waitForBossUser } from '@/utils/bossIdentity'
-import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
 import { BoosJobData, bossWorkflow } from './delivery'
 import { requestBossData } from './requests'
 import { BossZpDetailData, BossZpJobItemData } from './types'
 
-function removeAd() {
-  // 新职位发布时通知我
-  void elmGetter.rm('.job-list-wrapper .subscribe-weixin-wrapper')
-  // 侧栏
-  void elmGetter.rm('.job-side-wrapper')
-  // 侧边悬浮框
-  void elmGetter.rm('.side-bar-box')
-  // 搜索栏登录框
-  void elmGetter.rm('.go-login-btn')
-  // 底部页脚
-  // elmGetter.rm("#footer-wrapper");
+function viewDisposedError() {
+  const error = new Error('页面资源已释放')
+  error.name = 'AbortError'
+  return error
+}
 
-  // 新版: 微信扫码
-  void elmGetter.rm('.c-subscribe-weixin')
-  // 新版: 求职工具
-  void elmGetter.rm('.c-job-tools.job-tools')
-  // 新版: 热门职位
-  void elmGetter.rm('.c-hot-link.hot-link')
-  // 新版: 面包屑
-  void elmGetter.rm('.c-breadcrumb')
+function waitForElement<E extends Element>(selectors: string, signal: AbortSignal) {
+  const existing = document.querySelector<E>(selectors)
+  if (existing) return Promise.resolve(existing)
+
+  return new Promise<E>((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      const element = document.querySelector<E>(selectors)
+      if (!element) return
+      cleanup()
+      resolve(element)
+    })
+    const onAbort = () => {
+      cleanup()
+      reject(viewDisposedError())
+    }
+    const cleanup = () => {
+      observer.disconnect()
+      signal.removeEventListener('abort', onAbort)
+    }
+    if (signal.aborted) return onAbort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+  })
+}
+
+function removeAd() {
+  const selectors = [
+    '.job-list-wrapper .subscribe-weixin-wrapper',
+    '.job-side-wrapper',
+    '.side-bar-box',
+    '.go-login-btn',
+    '.c-subscribe-weixin',
+    '.c-job-tools.job-tools',
+    '.c-hot-link.hot-link',
+    '.c-breadcrumb',
+  ]
+  const removeMatches = () => {
+    document.querySelectorAll(selectors.join(',')).forEach((element) => element.remove())
+  }
+  const observer = new MutationObserver(removeMatches)
+  observer.observe(document.body, { childList: true, subtree: true })
+  removeMatches()
+  return () => observer.disconnect()
 }
 
 const initChange = useHookVueFn('#wrap .page-job-wrapper', 'pageChangeAction')
@@ -44,6 +72,10 @@ const initSearch = useHookVueFn('#wrap .page-job-wrapper,.job-recommend-main,.pa
   'searchJobAction',
   'onSearch',
 ])
+
+function isBossJobRoute(path: string) {
+  return path.startsWith('/web/geek/job')
+}
 
 function formatActiveTime(timestamp: number): string {
   const now = Date.now()
@@ -163,6 +195,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   rootVue: any = null
   jobMaps: Map<string, WorkflowData<BoosJobData, {}>>
   jobList: Ref<JobData[]>
+  private mountPromise: Promise<void> | null = null
 
   constructor() {
     const jobList = ref<JobData[]>([])
@@ -253,6 +286,25 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async start() {
+    if (this.workflow?.stopReason.value?.code === 'context_invalidated') {
+      await this.notification('扩展已更新，请刷新页面后再继续', {
+        toast: {
+          color: 'error',
+        },
+      })
+      return
+    }
+    try {
+      await this.ensureInitialized()
+    } catch {
+      await this.notification('配置尚未就绪，请先重试加载后再开始投递', {
+        toast: {
+          color: 'error',
+          description: this.initializationError.value ?? undefined,
+        },
+      })
+      return
+    }
     if (!this.uid || !this.protocolUserId) {
       await this.notification('未获取到用户ID，请刷新页面后重试', {
         toast: {
@@ -341,8 +393,20 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async onMount(path?: string) {
-    if (!path) {
-      path = this.rootVue.$route.path
+    if (this.mountPromise) return this.mountPromise
+    this.mountPromise = this.mountView(path)
+    try {
+      await this.mountPromise
+    } finally {
+      this.mountPromise = null
+    }
+  }
+
+  private async mountView(path?: string) {
+    const routePath = path ?? String(this.rootVue.$route.path ?? '')
+    if (!isBossJobRoute(routePath)) {
+      this.disposeView()
+      return
     }
     // TODO: 移除menu, 可能导致nuxtui实例冲突
     // if (!document.querySelector('boss-helper-menu')) {
@@ -352,119 +416,146 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
 
     if (document.querySelector('boss-helper-job')) return
 
-    const elm = await elmGetter.get(
+    this.disposeView()
+
+    const viewController = new AbortController()
+    this.registerViewDisposer(() => viewController.abort())
+
+    const elm = await waitForElement<HTMLElement>(
       '.job-search-wrapper,.job-recommend-main,.page-jobs .page-jobs-main',
+      viewController.signal,
     )
-    const appElement = document.createElement('boss-helper-job')
+    if (document.querySelector('boss-helper-job')) {
+      this.disposeView()
+      return
+    }
+
+    const appElement = createBossHelperJobElement(this)
 
     elm.insertBefore(appElement, elm.firstChild)
-    removeAd()
+    this.registerViewDisposer(removeAd())
 
-    await this._initPage()
-    await this._initPageChange()
-    await this._initJobDetail()
-    await this._initClickJobCardAction()
-    await this._initJobList()
+    try {
+      await this._initPage(viewController.signal)
+      await this._initPageChange(viewController.signal)
+      await this._initJobDetail(viewController.signal)
+      await this._initClickJobCardAction(viewController.signal)
+      await this._initJobList(viewController.signal)
 
-    this.initNetConf()
-    const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
+      this.initNetConf()
+      const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
 
-    watch(
-      appearanceConf.value,
-      (v) => {
-        if (!contentElm) return
-        contentElm.style.marginRight =
-          v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
-        contentElm.style.marginLeft =
-          !v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
-      },
-      { immediate: true },
+      this.registerViewDisposer(
+        watch(
+          appearanceConf.value,
+          (v) => {
+            if (!contentElm) return
+            contentElm.style.marginRight =
+              v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
+            contentElm.style.marginLeft =
+              !v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
+          },
+          { immediate: true },
+        ),
+      )
+    } catch (error) {
+      appElement.remove()
+      this.disposeView()
+      throw error
+    }
+  }
+
+  async _initJobList(signal?: AbortSignal) {
+    this.registerViewDisposer(
+      await useHookVueData(
+        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
+        'jobList',
+        this._jobList,
+        (v) => {
+          this.jobList.value = v.map((item) => {
+            // const jobData = convertBossZpJobItemToJobData(item)
+            // if (this.conf.formData.useCache.value) {
+            //   const cacheCheck = checkJobCache(jobData.key)
+            //   if (cacheCheck) {
+            //     jobData.status = {
+            //       status: cacheCheck.status,
+            //       msg: `${cacheCheck.message} (缓存)`,
+            //     }
+            //   }
+            // }
+            const job = convertBossZpJobItemToJobData(item)
+
+            let jobData = this._jobDataMap.get(job.key)
+            if (jobData) {
+              jobData = {
+                ...jobData,
+                jobitem: item,
+              }
+            } else {
+              jobData = {
+                jobitem: item,
+                detail: createLazyObject('岗位详情获取'),
+              }
+            }
+            this._jobDataMap.set(job.key, jobData)
+
+            return job
+          })
+          this.jobList.value.forEach((job) => {
+            this.jobMaps.set(job.key, {
+              jobData: job,
+              rawData: this._jobDataMap.get(job.key)!,
+              state: {},
+            })
+          })
+        },
+      )(signal),
     )
   }
 
-  async _initJobList() {
-    await useHookVueData(
-      '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-      'jobList',
-      this._jobList,
-      (v) => {
-        this.jobList.value = v.map((item) => {
-          // const jobData = convertBossZpJobItemToJobData(item)
-          // if (this.conf.formData.useCache.value) {
-          //   const cacheCheck = checkJobCache(jobData.key)
-          //   if (cacheCheck) {
-          //     jobData.status = {
-          //       status: cacheCheck.status,
-          //       msg: `${cacheCheck.message} (缓存)`,
-          //     }
-          //   }
-          // }
-          const job = convertBossZpJobItemToJobData(item)
-
-          let jobData = this._jobDataMap.get(job.key)
-          if (jobData) {
-            jobData = {
-              ...jobData,
-              jobitem: item,
-            }
-          } else {
-            jobData = {
-              jobitem: item,
-              detail: createLazyObject('岗位详情获取'),
-            }
-          }
-          this._jobDataMap.set(job.key, jobData)
-
-          return job
-        })
-        this.jobList.value.forEach((job) => {
-          this.jobMaps.set(job.key, {
-            jobData: job,
-            rawData: this._jobDataMap.get(job.key)!,
-            state: {},
-          })
-        })
-      },
-    )()
+  async _initPage(signal?: AbortSignal) {
+    this.registerViewDisposer(
+      await useHookVueData(
+        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
+        'pageVo',
+        this._page,
+      )(signal),
+    )
+    this.registerViewDisposer(
+      await useHookVueData(
+        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
+        'hasMore',
+        this._pageHasMore,
+      )(signal),
+    )
   }
 
-  async _initPage() {
-    await useHookVueData(
-      '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-      'pageVo',
-      this._page,
-    )()
-    await useHookVueData(
-      '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-      'hasMore',
-      this._pageHasMore,
-    )()
+  async _initJobDetail(signal?: AbortSignal) {
+    this.registerViewDisposer(
+      await useHookVueData(
+        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
+        'jobDetail',
+        this._jobDetail,
+      )(signal),
+    )
   }
 
-  async _initJobDetail() {
-    await useHookVueData(
-      '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-      'jobDetail',
-      this._jobDetail,
-    )()
-  }
-
-  async _initPageChange() {
+  async _initPageChange(signal?: AbortSignal) {
     let pc =
       location.href.includes('/web/geek/job-recommend') || location.href.includes('/web/geek/jobs')
-        ? await initSearch()
-        : await initChange()
+        ? await initSearch(signal)
+        : await initChange(signal)
     if (!pc) {
       throw new Error('pageChange is undefined')
     }
     this._pageChange = pc
   }
 
-  async _initClickJobCardAction() {
+  async _initClickJobCardAction(signal?: AbortSignal) {
     this._clickJobCardAction = await useHookVueFn(
       '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
       'clickJobCardAction',
-    )()
+    )(signal)
   }
 }
 
@@ -476,29 +567,59 @@ export async function runBossHelper() {
 
   const bossHelpCtx = await BossHelperCtx.new()
 
-  bossHelpCtx.rootVue.$router.afterHooks.push(
-    (to: {
-      name: string
-      meta: {
-        notLogin: boolean
-        wrapClassName: string
-        scrollBehavior: string
-        hideFooter: boolean
-        headerV2: boolean
-      }
-      path: string
-      hash: string
-      query: {
-        ka: string
-      }
-      params: {}
-      fullPath: string
-    }) => {
-      void bossHelpCtx.onMount(to.path).catch((e) => {
+  let pendingRouteObserver: MutationObserver | null = null
+  const mountForRoute = (path: string) => {
+    pendingRouteObserver?.disconnect()
+    pendingRouteObserver = null
+    const existingHost = document.querySelector('boss-helper-job')
+    if (!isBossJobRoute(path)) {
+      existingHost?.remove()
+      bossHelpCtx.disposeView()
+      return
+    }
+    if (!existingHost) {
+      void bossHelpCtx.onMount(path).catch((e) => {
         logger.error('页面切换初始化失败', e)
       })
-    },
-  )
+      return
+    }
+
+    pendingRouteObserver = new MutationObserver(() => {
+      if (existingHost.isConnected) return
+      pendingRouteObserver?.disconnect()
+      pendingRouteObserver = null
+      void bossHelpCtx.onMount(path).catch((e) => {
+        logger.error('页面切换初始化失败', e)
+      })
+    })
+    pendingRouteObserver.observe(document.documentElement, { childList: true, subtree: true })
+  }
+  const routeHook = (to: {
+    name: string
+    meta: {
+      notLogin: boolean
+      wrapClassName: string
+      scrollBehavior: string
+      hideFooter: boolean
+      headerV2: boolean
+    }
+    path: string
+    hash: string
+    query: {
+      ka: string
+    }
+    params: {}
+    fullPath: string
+  }) => {
+    mountForRoute(to.path)
+  }
+  bossHelpCtx.rootVue.$router.afterHooks.push(routeHook)
+  bossHelpCtx.registerDisposer(() => {
+    pendingRouteObserver?.disconnect()
+    pendingRouteObserver = null
+    const index = bossHelpCtx.rootVue.$router.afterHooks.indexOf(routeHook)
+    if (index >= 0) bossHelpCtx.rootVue.$router.afterHooks.splice(index, 1)
+  })
 
   await run(bossHelpCtx)
 }

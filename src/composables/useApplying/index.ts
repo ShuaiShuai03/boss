@@ -10,6 +10,10 @@ import {
 import { HelperContext } from '../useHelper'
 import { DependencyMissingError } from './handles'
 import {
+  createWorkflowStopReason,
+  type WorkflowStopReason,
+} from './stopReason'
+import {
   Handler,
   JobStatus,
   jobStatusList,
@@ -20,6 +24,8 @@ import {
   TaskStatus,
   WorkflowData,
 } from './type'
+
+export type { WorkflowStopReason, WorkflowStopReasonCode } from './stopReason'
 
 // 全局缓存管理器实例
 let cacheManager: PipelineCacheManager | null = null
@@ -140,6 +146,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     helper.conf.formData.deliveryLimit.value || helper.conf.defaultFormData.deliveryLimit.value,
   )
   const errorMessage = ref<string | null>(null)
+  const stopReason = shallowRef<WorkflowStopReason | null>(null)
   const pipeline = shallowRef<Task<C, T, S>[]>([])
   const nodes = shallowRef<
     Array<{
@@ -370,6 +377,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     let stepMsg = ''
     let consecutiveFailures = 0
     errorMessage.value = null
+    stopReason.value = null
     status.value = 'running'
     batchSubmitted.value = 0
     batchLimit.value =
@@ -393,6 +401,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         )
         if (helper.jobList.value.length === 0) {
           stepMsg = '没有职位可投递'
+          stopReason.value = createWorkflowStopReason('no_jobs', stepMsg)
           helper.logs.info('停止原因', stepMsg)
           break
         }
@@ -417,6 +426,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           if (batchIsFull()) {
             status.value = 'stop'
             stepMsg = `本批已完成 ${batchSubmitted.value}/${batchLimit.value}，点击继续开始下一批`
+            stopReason.value = createWorkflowStopReason('batch_limit', stepMsg)
             helper.logs.info('本批完成', stepMsg)
             break
           }
@@ -440,6 +450,14 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           }
           if (isStop() && errorMessage.value) {
             stepMsg = errorMessage.value
+            const contextInvalidated =
+              errorMessage.value === EXTENSION_CONTEXT_INVALIDATED_MESSAGE ||
+              isExtensionContextInvalidated(errorMessage.value)
+            stopReason.value = createWorkflowStopReason(
+              contextInvalidated ? 'context_invalidated' : 'unexpected_error',
+              stepMsg,
+              contextInvalidated ? undefined : '工作流已因错误暂停',
+            )
             helper.logs.info('停止原因', stepMsg)
             break
           }
@@ -449,6 +467,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
             if (consecutiveFailures >= maxConsecutiveFailures()) {
               status.value = 'stop'
               stepMsg = `连续失败 ${consecutiveFailures} 次，已自动暂停`
+              stopReason.value = createWorkflowStopReason('consecutive_failures', stepMsg)
               helper.logs.info('连续失败暂停', stepMsg)
               break
             }
@@ -458,6 +477,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           if (batchIsFull()) {
             status.value = 'stop'
             stepMsg = `本批已完成 ${batchSubmitted.value}/${batchLimit.value}，点击继续开始下一批`
+            stopReason.value = createWorkflowStopReason('batch_limit', stepMsg)
             helper.logs.info('本批完成', stepMsg)
             break
           }
@@ -470,6 +490,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         if (!hasMore) {
           status.value = 'stop'
           stepMsg = '投递结束, 无法继续下一页'
+          stopReason.value = createWorkflowStopReason('no_more_jobs', stepMsg)
           helper.logs.info('无更多岗位', stepMsg)
           break
         }
@@ -479,6 +500,10 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       logger.error(e)
       const error = normalizeLogError(e)
       stepMsg = `未知错误: ${error.message}`
+      stopReason.value = createWorkflowStopReason(
+        isExtensionContextInvalidated(e) ? 'context_invalidated' : 'unexpected_error',
+        stepMsg,
+      )
       helper.logs.value.push({
         time: new Date().toLocaleString(),
         title: '工作流错误',
@@ -493,6 +518,9 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     } finally {
       if (!stepMsg) {
         stepMsg = status.value === 'stop' ? (errorMessage.value ?? '已暂停') : '投递结束'
+        if (status.value === 'stop' && !stopReason.value) {
+          stopReason.value = createWorkflowStopReason('manual', stepMsg)
+        }
         if (status.value !== 'stop') {
           status.value = 'pending'
         }
@@ -504,9 +532,14 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     }
   }
 
-  const stop = () => (status.value = 'stop')
+  const stop = () => {
+    status.value = 'stop'
+    stopReason.value = createWorkflowStopReason('manual', '你可以检查当前结果后继续。')
+  }
   const reset = () => {
     status.value = 'pending'
+    stopReason.value = null
+    errorMessage.value = null
     helper.jobList.value.forEach((job) => {
       const v = helper.jobResultMaps.get(job.key)
       if (!v || v.status === 'success') {
@@ -525,6 +558,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     batchSubmitted,
     batchLimit,
     errorMessage,
+    stopReason,
     pipeline,
     nodes,
     ctx: helper,

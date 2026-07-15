@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { isPartStreaming, isToolStreaming } from '@nuxt/ui/utils/ai'
+import { useMediaQuery, watchThrottled } from '@vueuse/core'
 import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, UIMessage } from 'ai'
 
 import { appearanceConf } from '@/composables/conf'
@@ -7,6 +8,13 @@ import type { WorkflowData } from '@/composables/useApplying/type'
 import { parseFiltering } from '@/composables/useApplying/utils'
 import { useHelper } from '@/composables/useHelper'
 import { Message } from '@/composables/useModel/test'
+import { counter } from '@/message'
+import {
+  aiReplyDraftStorageKey,
+  sanitizeStoredReplyDrafts,
+  serializeReplyDrafts,
+  type StoredReplyDraft,
+} from '@/features/aiReply/draftStorage'
 import {
   AI_REPLY_DOM_MESSAGE_EVENT,
   type AiReplyChatEventPayload,
@@ -43,6 +51,7 @@ interface DraftState {
 const conversations = reactive(new Map<string, SidebarConversation>())
 const conversationIdsByJob = reactive(new Map<string, string>())
 const drafts = reactive(new Map<string, DraftState>())
+const restoredDrafts = ref<Record<string, StoredReplyDraft>>({})
 
 const jobs = computed(() =>
   helper.chatModel.jobs.value.map((key) => ({
@@ -67,16 +76,43 @@ const selectedConversation = computed(() => {
 function ensureDraft(conversationId: string) {
   let draft = drafts.get(conversationId)
   if (!draft) {
+    const restored = restoredDrafts.value[conversationId]
     draft = {
-      text: '',
-      status: 'idle',
-      dirty: false,
-      updatedAt: Date.now(),
+      text: restored?.text ?? '',
+      status: restored?.text ? 'ready' : 'idle',
+      dirty: restored?.dirty ?? false,
+      updatedAt: restored?.updatedAt ?? Date.now(),
     }
     drafts.set(conversationId, draft)
   }
   return draft
 }
+
+async function persistDrafts() {
+  await counter.sessionStorageSet(aiReplyDraftStorageKey, serializeReplyDrafts(drafts))
+}
+
+async function persistDraftsSafely(showWarning = false) {
+  try {
+    await persistDrafts()
+    return true
+  } catch (error) {
+    logger.warn('AI 回复草稿保存失败', error)
+    if (showWarning) {
+      toast.add({
+        title: '回复已发送，但草稿清理状态保存失败',
+        description: '本次发送已成功；刷新后请确认旧草稿未重新出现。',
+        color: 'warning',
+      })
+    }
+    return false
+  }
+}
+
+const stopDraftPersistence = watchThrottled(drafts, () => void persistDraftsSafely(), {
+  deep: true,
+  throttle: 500,
+})
 
 const selectedDraft = computed(() => {
   const conversation = selectedConversation.value
@@ -434,6 +470,7 @@ async function sendDraft() {
     draft.error = undefined
     draft.pendingIncomingId = undefined
     draft.updatedAt = Date.now()
+    await persistDraftsSafely(true)
   } catch (err: any) {
     logger.error(err)
     toast.add({
@@ -488,6 +525,14 @@ const statusMessages = ['Searching...', 'Reading...', 'Analyzing...', 'Thinking.
 const currentIndex = ref(0)
 const displayedText = ref(statusMessages[0]!)
 const chars = 'abcdefghijklmnopqrstuvwxyz'
+const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+const animationActive = computed(
+  () =>
+    open.value &&
+    messages.value?.statusRef.value === 'streaming' &&
+    !prefersReducedMotion.value,
+)
+let animationFrameId: number | undefined
 
 function scramble(from: string, to: string) {
   const maxLength = Math.max(from.length, to.length)
@@ -512,20 +557,34 @@ function scramble(from: string, to: string) {
     displayedText.value = result
 
     if (frame < totalFrames) {
-      requestAnimationFrame(step)
+      animationFrameId = requestAnimationFrame(step)
     } else {
       displayedText.value = to
     }
   }
 
-  requestAnimationFrame(step)
+  animationFrameId = requestAnimationFrame(step)
 }
 
 let matrixInterval: ReturnType<typeof setInterval> | undefined
 let textInterval: ReturnType<typeof setInterval> | undefined
 
-onMounted(() => {
-  document.addEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
+function stopIndicatorAnimation() {
+  clearInterval(matrixInterval)
+  clearInterval(textInterval)
+  matrixInterval = undefined
+  textInterval = undefined
+  if (animationFrameId != null) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = undefined
+  }
+  activeDots.value = new Set()
+  displayedText.value = '正在生成…'
+}
+
+function startIndicatorAnimation() {
+  stopIndicatorAnimation()
+  displayedText.value = statusMessages[currentIndex.value]!
   nextStep()
   matrixInterval = setInterval(nextStep, 120)
   textInterval = setInterval(() => {
@@ -533,12 +592,40 @@ onMounted(() => {
     currentIndex.value = (currentIndex.value + 1) % statusMessages.length
     scramble(prev, statusMessages[currentIndex.value]!)
   }, 3000)
+}
+
+watch(animationActive, (active) => {
+  if (active) startIndicatorAnimation()
+  else stopIndicatorAnimation()
+}, { immediate: true })
+
+onMounted(async () => {
+  document.addEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
+  try {
+    const stored = await counter.sessionStorageGet(aiReplyDraftStorageKey, {})
+    restoredDrafts.value = sanitizeStoredReplyDrafts(stored)
+    for (const [conversationId, restored] of Object.entries(restoredDrafts.value)) {
+      const current = drafts.get(conversationId)
+      if (!current || (!current.dirty && !current.text.trim())) {
+        drafts.set(conversationId, {
+          text: restored.text,
+          status: 'ready',
+          dirty: restored.dirty,
+          updatedAt: restored.updatedAt,
+        })
+      }
+    }
+    void persistDraftsSafely()
+  } catch (error) {
+    logger.warn('AI 回复草稿恢复失败', error)
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
-  clearInterval(matrixInterval)
-  clearInterval(textInterval)
+  stopIndicatorAnimation()
+  stopDraftPersistence()
+  void persistDraftsSafely()
 })
 </script>
 
@@ -669,6 +756,8 @@ onUnmounted(() => {
           variant="subtle"
           title="已有新消息"
           description="当前草稿保留了你的编辑，点击重新生成可使用最新上下文。"
+          role="status"
+          aria-live="polite"
         />
         <UAlert
           v-if="selectedDraft?.status === 'error' && selectedDraft.error"
@@ -676,6 +765,7 @@ onUnmounted(() => {
           variant="subtle"
           title="生成失败"
           :description="selectedDraft.error"
+          role="alert"
         />
         <UTextarea
           v-model="draftText"
@@ -684,6 +774,7 @@ onUnmounted(() => {
           autoresize
           :placeholder="draftPlaceholder"
           :disabled="draftLoading || !selectedConversation"
+          aria-label="AI 回复草稿"
         />
         <div class="flex items-center justify-between gap-2">
           <UBadge variant="subtle" color="neutral">

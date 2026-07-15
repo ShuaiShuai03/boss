@@ -28,7 +28,20 @@ export function createContentBridgeOptions(): ContentBridgeOptions {
 }
 
 export function readInjectedContentBridgeOptions(): ContentBridgeOptions {
-  const script = document.currentScript as HTMLScriptElement | null
+  let script = document.currentScript as HTMLScriptElement | null
+  if (!script) {
+    for (let index = document.scripts.length - 1; index >= 0; index--) {
+      const candidate = document.scripts.item(index)
+      if (
+        candidate?.dataset.bossHelperBridgeId &&
+        candidate.dataset.bossHelperBridgeToken &&
+        new URL(candidate.src).pathname.endsWith('/boss.js')
+      ) {
+        script = candidate
+        break
+      }
+    }
+  }
   const channelId = script?.dataset.bossHelperBridgeId
   const token = script?.dataset.bossHelperBridgeToken
   script?.removeAttribute('data-boss-helper-bridge-id')

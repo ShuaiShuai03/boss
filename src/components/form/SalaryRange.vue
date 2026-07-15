@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { type InputNumberProps } from '@nuxt/ui'
+import { computed, useId } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -9,15 +10,16 @@ const props = withDefaults(
     step?: number
     controls?: boolean
     ui?: InputNumberProps['ui']
+    label?: string
   }>(),
   {
     controls: true,
-    ui: {
-      // @ts-ignore
-      base: 'max-w-25',
-    },
   },
 )
+
+const rangeId = useId()
+const unitId = `${rangeId}-unit`
+const inputUi = computed<InputNumberProps['ui']>(() => props.ui ?? { base: 'max-w-25' })
 
 const handleToggle = () => {
   props.value[2] = !props.value[2]
@@ -32,7 +34,11 @@ const handleToggle = () => {
       :step="props.step"
       :increment="false"
       :decrement="false"
-      :ui="props.ui"
+      :ui="inputUi"
+      :id="`${rangeId}-minimum`"
+      :name="`${rangeId}-minimum`"
+      :aria-label="`${props.label || '范围'}最低值`"
+      :aria-describedby="unitId"
     />
     <UBadge>-</UBadge>
     <UInputNumber
@@ -41,11 +47,20 @@ const handleToggle = () => {
       :step="props.step"
       :increment="false"
       :decrement="false"
-      :ui="props.ui"
+      :ui="inputUi"
+      :id="`${rangeId}-maximum`"
+      :name="`${rangeId}-maximum`"
+      :aria-label="`${props.label || '范围'}最高值`"
+      :aria-describedby="unitId"
     />
 
-    <UBadge>{{ props.unit }}</UBadge>
-    <UButton v-if="props.show" @click="handleToggle">
+    <UBadge :id="unitId">{{ props.unit }}</UBadge>
+    <UButton
+      v-if="props.show"
+      :aria-pressed="props.value[2]"
+      :aria-label="`${props.label || '范围'}匹配方式：${props.value[2] ? '严格' : '宽松'}`"
+      @click="handleToggle"
+    >
       {{ props.value[2] ? '严格' : '宽松' }}
     </UButton>
     <slot />

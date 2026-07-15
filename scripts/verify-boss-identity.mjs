@@ -72,7 +72,14 @@ assert.equal(delayedUser.protocolUserId, '789')
 
 const bossMain = readFileSync(new URL('../src/entrypoints/boss/main.ts', import.meta.url), 'utf8')
 assert.doesNotMatch(bossMain, /return window\._PAGE\.encryptUserId/)
-assert.match(bossMain, /async start\(\) \{\s+if \(!this\.uid \|\| !this\.protocolUserId\)/)
+const startMethod = bossMain.slice(bossMain.indexOf('  async start() {'), bossMain.indexOf('  async sendMessage('))
+const initializationGateIndex = startMethod.indexOf('await this.ensureInitialized()')
+const identityGateIndex = startMethod.indexOf('if (!this.uid || !this.protocolUserId)')
+const workflowExecutionIndex = startMethod.indexOf('await this.workflow.executeAll')
+assert.ok(initializationGateIndex >= 0, 'start must await initialization')
+assert.ok(identityGateIndex > initializationGateIndex, 'identity checks must follow initialization')
+assert.ok(workflowExecutionIndex > identityGateIndex, 'workflow must only execute after both gates')
+assert.match(startMethod, /stopReason\.value\?\.code === 'context_invalidated'/)
 
 const bossRequests = readFileSync(
   new URL('../src/entrypoints/boss/requests.ts', import.meta.url),

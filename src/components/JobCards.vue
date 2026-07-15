@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { ComponentPublicInstance } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { ref } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
@@ -7,16 +8,17 @@ import { useHelper } from '@/composables/useHelper'
 
 const jobSetRef = ref<Record<string, Element | ComponentPublicInstance | null>>({})
 const following = ref(true)
+const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 
 const cards = ref<HTMLDivElement>()
 const helper = useHelper()
 
-function onWheel(e: any) {
+function onWheel(e: WheelEvent) {
   e.preventDefault()
   if (!cards.value) {
     return
   }
-  const left = -e.wheelDelta || e.deltaY / 2
+  const left = e.deltaY || e.deltaX
   cards.value.scrollLeft = cards.value.scrollLeft + left
   following.value = false
 }
@@ -31,13 +33,13 @@ function scrollHandler(key = helper.currentJob.value) {
 
   if ('scrollIntoView' in d) {
     d.scrollIntoView({
-      behavior: 'smooth',
+      behavior: prefersReducedMotion.value ? 'auto' : 'smooth',
       block: 'nearest',
       inline: 'center',
     })
   } else if ('$el' in d) {
     d?.$el.scrollIntoView({
-      behavior: 'smooth',
+      behavior: prefersReducedMotion.value ? 'auto' : 'smooth',
       block: 'nearest',
       inline: 'center',
     })
@@ -73,6 +75,8 @@ watch(
       size="md"
       :color="following ? 'primary' : 'neutral'"
       variant="outline"
+      :aria-pressed="following"
+      :aria-label="following ? '关闭岗位自动跟随' : '开启岗位自动跟随'"
       @click="following = !following"
       icon="i-lucide-accessibility"
       title="自动跟随"

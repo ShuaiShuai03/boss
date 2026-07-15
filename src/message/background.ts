@@ -37,6 +37,16 @@ function normalizeHttpRequestUrl(url: string) {
 }
 
 export class BackgroundCounter {
+  async sessionStorageGet<T>(key: string, defaultValue: T): Promise<T> {
+    const value = await browser.storage.session.get(key)
+    return (value[key] as T | undefined) ?? defaultValue
+  }
+
+  async sessionStorageSet<T>(key: string, value: T) {
+    await browser.storage.session.set({ [key]: value })
+    return true
+  }
+
   async request(args: {
     url: string
     data: RequestInit

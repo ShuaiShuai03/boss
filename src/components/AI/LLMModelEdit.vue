@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
       <div class="flex justify-end gap-2">
         <UButton color="neutral" variant="outline" @click="show = false"> 取消 </UButton>
         <UButton color="neutral" @click="testShow = true"> 测试 </UButton>
-        <UButton @click="create"> 保存 </UButton>
+        <UButton @click="create"> 应用并保存 </UButton>
       </div>
     </template>
   </UModal>
@@ -319,9 +319,24 @@ onBeforeUnmount(() => {
           </UButton>
         </template>
       </UFieldGroup>
-      <div class="grid grid-cols-2 gap-3">
-        <UTextarea v-model="testIn" :rows="9" placeholder="输入用于验证模型能力的提示词" />
-        <UTextarea :model-value="testOut" :rows="9" placeholder="AI 响应" />
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <UFormField label="模型测试输入">
+          <UTextarea
+            v-model="testIn"
+            :rows="9"
+            aria-label="模型测试输入"
+            placeholder="输入用于验证模型能力的提示词"
+          />
+        </UFormField>
+        <UFormField label="模型测试输出">
+          <UTextarea
+            :model-value="testOut"
+            :rows="9"
+            aria-label="模型测试输出"
+            placeholder="AI 响应"
+            readonly
+          />
+        </UFormField>
       </div>
       <UAlert
         v-if="testStatus === 'success'"
@@ -337,6 +352,7 @@ onBeforeUnmount(() => {
         variant="subtle"
         title="测试请求失败"
         :description="testOut"
+        role="alert"
       />
     </template>
 

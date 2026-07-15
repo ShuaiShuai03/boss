@@ -1,6 +1,7 @@
 import ui from '@nuxt/ui/vite'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
+import { transformWithEsbuild } from 'vite'
 import { defineConfig } from 'wxt'
 
 import { version } from './package.json'
@@ -21,9 +22,10 @@ export default defineConfig({
     },
   },
 
-  vite: () => ({
+  vite: (env) => ({
     define: {
       __APP_VERSION__: JSON.stringify(version),
+      __BOSS_HELPER_TARGET_BROWSER__: JSON.stringify(env.browser),
     },
     ssr: {
       noExternal: [
@@ -119,7 +121,7 @@ export default defineConfig({
     permissions: ['storage', 'notifications'],
     web_accessible_resources: [
       {
-        resources: ['boss.js', 'chat-socket-main-world.js'],
+        resources: ['boss.js', 'chat-socket-main-world.js', 'chunks/*'],
         matches,
       },
     ],
@@ -134,6 +136,42 @@ export default defineConfig({
   },
   webExt: {
     disabled: true,
+  },
+  hooks: {
+    'vite:build:extendConfig'(entrypoints, viteConfig) {
+      const buildsBoss = entrypoints.some(
+        (entrypoint) => entrypoint.type === 'unlisted-script' && entrypoint.name === 'boss',
+      )
+      const buildsChrome =
+        viteConfig.define?.__BOSS_HELPER_TARGET_BROWSER__ === JSON.stringify('chrome')
+      if (!buildsBoss || !buildsChrome || !viteConfig.build?.lib) return
+
+      viteConfig.build.lib.formats = ['es']
+      viteConfig.build.minify = 'esbuild'
+      viteConfig.plugins ??= []
+      viteConfig.plugins.push({
+        name: 'boss-helper:minify-chrome-main-world-esm',
+        enforce: 'post',
+        async renderChunk(code, chunk, outputOptions) {
+          if (outputOptions.format !== 'es') return null
+          return transformWithEsbuild(code, chunk.fileName, {
+            format: 'esm',
+            minify: true,
+            sourcemap: false,
+            target: 'es2022',
+          })
+        },
+      })
+      viteConfig.build.rollupOptions ??= {}
+      const output = viteConfig.build.rollupOptions.output
+      if (Array.isArray(output)) {
+        throw new Error('BossHelper expects a single Rollup output configuration')
+      }
+      viteConfig.build.rollupOptions.output = {
+        ...output,
+        chunkFileNames: 'chunks/boss-[name]-[hash].js',
+      }
+    },
   },
   // hooks: {
   //   'build:manifestGenerated': (wxt, manifest) => {
