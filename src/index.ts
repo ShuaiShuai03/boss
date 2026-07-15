@@ -12,15 +12,19 @@ import AppStyle from '@/assets/main.css?inline'
 
 interface ViewContext {
   disposeView(): void
+  suspendView?(trigger?: string): Promise<void>
 }
 
-const viewContexts = new WeakMap<HTMLElement, ViewContext>()
+const viewContextSymbol = Symbol.for('boss-helper:view-context')
 
 export function createBossHelperJobElement<C extends HelperContext<C, T, S>, T, S>(
   ctx: HelperContext<C, T, S>,
 ) {
   const element = document.createElement('boss-helper-job')
-  viewContexts.set(element, ctx)
+  Object.defineProperty(element, viewContextSymbol, {
+    configurable: true,
+    value: ctx,
+  })
   return element
 }
 
@@ -59,14 +63,21 @@ export async function run<C extends HelperContext<C, T, S>, T, S>(ctx: HelperCon
 
         connectedCallback() {
           if (this.app) return
-          this.viewContext = viewContexts.get(this) ?? ctx
+          this.viewContext =
+            ((this as unknown as Record<symbol, ViewContext>)[viewContextSymbol] as
+              | ViewContext
+              | undefined) ?? ctx
           this.app = mountApp(this, App, this.viewContext)
         }
 
         disconnectedCallback() {
           this.app?.unmount()
           this.app = null
-          this.viewContext?.disposeView()
+          if (this.viewContext?.suspendView) {
+            void this.viewContext.suspendView('view_disconnected')
+          } else {
+            this.viewContext?.disposeView()
+          }
           this.viewContext = null
         }
       },
@@ -91,8 +102,10 @@ export async function run<C extends HelperContext<C, T, S>, T, S>(ctx: HelperCon
     )
   }
 
-  const handlePageHide = () => ctx.dispose()
-  window.addEventListener('pagehide', handlePageHide, { once: true })
+  const handlePageHide = (event: PageTransitionEvent) => {
+    void ctx.workflow?.suspendForLifecycle(event.persisted ? 'pagehide_bfcache' : 'pagehide')
+  }
+  window.addEventListener('pagehide', handlePageHide)
   ctx.registerDisposer(() => window.removeEventListener('pagehide', handlePageHide))
   await ctx.onMount()
   logger.info('BossHelper加载成功', chat)

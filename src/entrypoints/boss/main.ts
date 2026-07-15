@@ -16,6 +16,8 @@ import { BoosJobData, bossWorkflow } from './delivery'
 import { requestBossData } from './requests'
 import { BossZpDetailData, BossZpJobItemData } from './types'
 
+const runtimeSymbol = Symbol.for('boss-helper:runtime')
+
 function viewDisposedError() {
   const error = new Error('页面资源已释放')
   error.name = 'AbortError'
@@ -196,6 +198,8 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   jobMaps: Map<string, WorkflowData<BoosJobData, {}>>
   jobList: Ref<JobData[]>
   private mountPromise: Promise<void> | null = null
+  private pendingMountPath: string | null = null
+  private reconciliationPromise: Promise<void> | null = null
 
   constructor() {
     const jobList = ref<JobData[]>([])
@@ -393,12 +397,37 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async onMount(path?: string) {
+    this.pendingMountPath = path ?? String(this.rootVue.$route.path ?? '')
     if (this.mountPromise) return this.mountPromise
-    this.mountPromise = this.mountView(path)
+    this.mountPromise = (async () => {
+      while (this.pendingMountPath !== null) {
+        const nextPath = this.pendingMountPath
+        this.pendingMountPath = null
+        try {
+          await this.mountView(nextPath)
+        } catch (error) {
+          if (this.pendingMountPath === null) throw error
+          logger.info('页面挂载已被新的路由生命周期请求取代')
+        }
+      }
+    })()
     try {
       await this.mountPromise
     } finally {
       this.mountPromise = null
+    }
+  }
+
+  async reconcileWorkflow(trigger = 'lifecycle') {
+    if (this.reconciliationPromise) return this.reconciliationPromise
+    this.reconciliationPromise = (async () => {
+      await this.ensureInitialized()
+      await this.workflow?.reconcile(this._jobDataMap, trigger)
+    })()
+    try {
+      await this.reconciliationPromise
+    } finally {
+      this.reconciliationPromise = null
     }
   }
 
@@ -441,6 +470,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       await this._initJobDetail(viewController.signal)
       await this._initClickJobCardAction(viewController.signal)
       await this._initJobList(viewController.signal)
+      await this.reconcileWorkflow('view_mount')
 
       this.initNetConf()
       const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
@@ -565,7 +595,19 @@ export async function runBossHelper() {
   //     GM_getValue("theme-dark", false)
   //   );
 
+  const runtimeWindow = window as typeof window & Record<symbol, BossHelperCtx | undefined>
+  const previousRuntime = runtimeWindow[runtimeSymbol]
+  if (previousRuntime) {
+    logger.info('检测到内容脚本重连，交接工作流执行租约')
+    await previousRuntime.disposeForLifecycle('content_reconnect')
+    document.querySelector('boss-helper-job')?.remove()
+  }
+
   const bossHelpCtx = await BossHelperCtx.new()
+  runtimeWindow[runtimeSymbol] = bossHelpCtx
+  bossHelpCtx.registerDisposer(() => {
+    if (runtimeWindow[runtimeSymbol] === bossHelpCtx) delete runtimeWindow[runtimeSymbol]
+  })
 
   let pendingRouteObserver: MutationObserver | null = null
   const mountForRoute = (path: string) => {
@@ -584,15 +626,17 @@ export async function runBossHelper() {
       return
     }
 
-    pendingRouteObserver = new MutationObserver(() => {
+    const remountWhenDisconnected = () => {
       if (existingHost.isConnected) return
       pendingRouteObserver?.disconnect()
       pendingRouteObserver = null
       void bossHelpCtx.onMount(path).catch((e) => {
         logger.error('页面切换初始化失败', e)
       })
-    })
+    }
+    pendingRouteObserver = new MutationObserver(remountWhenDisconnected)
     pendingRouteObserver.observe(document.documentElement, { childList: true, subtree: true })
+    queueMicrotask(remountWhenDisconnected)
   }
   const routeHook = (to: {
     name: string
@@ -619,6 +663,31 @@ export async function runBossHelper() {
     pendingRouteObserver = null
     const index = bossHelpCtx.rootVue.$router.afterHooks.indexOf(routeHook)
     if (index >= 0) bossHelpCtx.rootVue.$router.afterHooks.splice(index, 1)
+  })
+
+  const reconcileFromLifecycle = (trigger: string) => {
+    void bossHelpCtx.reconcileWorkflow(trigger).catch((error) => {
+      logger.warn('页面生命周期恢复失败', error)
+    })
+  }
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') reconcileFromLifecycle('visibility')
+  }
+  const handlePageShow = () => reconcileFromLifecycle('pageshow')
+  const handleFocus = () => reconcileFromLifecycle('focus')
+  const handleOnline = () => reconcileFromLifecycle('online')
+  const handleWatchdog = () => reconcileFromLifecycle('watchdog')
+  document.addEventListener('visibilitychange', handleVisibility)
+  window.addEventListener('pageshow', handlePageShow)
+  window.addEventListener('focus', handleFocus)
+  window.addEventListener('online', handleOnline)
+  document.addEventListener('boss-helper:workflow-watchdog', handleWatchdog)
+  bossHelpCtx.registerDisposer(() => {
+    document.removeEventListener('visibilitychange', handleVisibility)
+    window.removeEventListener('pageshow', handlePageShow)
+    window.removeEventListener('focus', handleFocus)
+    window.removeEventListener('online', handleOnline)
+    document.removeEventListener('boss-helper:workflow-watchdog', handleWatchdog)
   })
 
   await run(bossHelpCtx)

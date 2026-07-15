@@ -14,6 +14,17 @@ export default defineContentScript({
     const isManifestV3 = browser.runtime.getManifest().manifest_version === 3
     let injectedScript: HTMLScriptElement | undefined
     provideContentCounter(new ProvideContentAdapter(bridge))
+    const handleRuntimeMessage = (message: unknown) => {
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        'type' in message &&
+        message.type === 'boss-helper:workflow-watchdog'
+      ) {
+        document.dispatchEvent(new CustomEvent('boss-helper:workflow-watchdog'))
+      }
+    }
+    browser.runtime.onMessage.addListener(handleRuntimeMessage)
     try {
       await injectScript('/boss.js', {
         keepInDom: isManifestV3,
@@ -27,5 +38,7 @@ export default defineContentScript({
     } finally {
       injectedScript?.remove()
     }
+
+    return () => browser.runtime.onMessage.removeListener(handleRuntimeMessage)
   },
 })

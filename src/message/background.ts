@@ -2,6 +2,17 @@ import type { Adapter, Message, OnMessage, SendMessage } from 'comctx'
 import { defineProxy } from 'comctx'
 import { type Browser, browser } from 'wxt/browser'
 
+import {
+  claimWorkflowRun,
+  forcePauseWorkflowRun,
+  normalizeWorkflowRunCheckpoint,
+  resetWorkflowRunFilters,
+  resumePausedWorkflowRun,
+  workflowRunRawStorageKey,
+  type WorkflowRunCheckpoint,
+  type WorkflowRunClaim,
+} from '@/composables/useApplying/runState'
+
 export const userKey = 'local:conf-user'
 
 type BackgroundResponseType = 'text' | 'json' | 'arraybuffer' | 'blob' | 'document' | 'stream'
@@ -22,6 +33,17 @@ export interface BackgroundRawRequest {
   timeout?: number
 }
 
+let workflowRunMutation = Promise.resolve()
+
+function mutateWorkflowRun<T>(mutation: () => Promise<T>) {
+  const result = workflowRunMutation.catch(() => undefined).then(mutation)
+  workflowRunMutation = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
 function normalizeHttpRequestUrl(url: string) {
   const parsedUrl = new URL(url)
   if (parsedUrl.protocol === 'https:') {
@@ -37,6 +59,76 @@ function normalizeHttpRequestUrl(url: string) {
 }
 
 export class BackgroundCounter {
+  async readWorkflowRun() {
+    const stored = await browser.storage.local.get(workflowRunRawStorageKey)
+    return normalizeWorkflowRunCheckpoint(stored[workflowRunRawStorageKey])
+  }
+
+  async claimWorkflowRun(
+    claim: WorkflowRunClaim,
+    now: number,
+    resumePaused = false,
+  ): Promise<{ claimed: boolean; checkpoint: WorkflowRunCheckpoint }> {
+    return mutateWorkflowRun(async () => {
+      const stored = await browser.storage.local.get(workflowRunRawStorageKey)
+      const current = stored[workflowRunRawStorageKey]
+      const normalized = normalizeWorkflowRunCheckpoint(current)
+      const result =
+        resumePaused && normalized?.intent === 'paused'
+          ? { claimed: true, checkpoint: resumePausedWorkflowRun(current, claim, now) }
+          : claimWorkflowRun(current, claim, now)
+      if (result.claimed) {
+        await browser.storage.local.set({ [workflowRunRawStorageKey]: result.checkpoint })
+      }
+      return result
+    })
+  }
+
+  async updateWorkflowRun(
+    runId: string,
+    ownerId: string,
+    nextValue: WorkflowRunCheckpoint,
+  ): Promise<{ updated: boolean; checkpoint: WorkflowRunCheckpoint | null }> {
+    return mutateWorkflowRun(async () => {
+      const stored = await browser.storage.local.get(workflowRunRawStorageKey)
+      const current = normalizeWorkflowRunCheckpoint(stored[workflowRunRawStorageKey])
+      const next = normalizeWorkflowRunCheckpoint(nextValue)
+      if (
+        !current ||
+        !next ||
+        current.runId !== runId ||
+        current.ownerId !== ownerId ||
+        next.runId !== runId
+      ) {
+        return { updated: false, checkpoint: current }
+      }
+      await browser.storage.local.set({ [workflowRunRawStorageKey]: next })
+      return { updated: true, checkpoint: next }
+    })
+  }
+
+  async pauseWorkflowRun(accountId: string, now: number) {
+    return mutateWorkflowRun(async () => {
+      const stored = await browser.storage.local.get(workflowRunRawStorageKey)
+      const checkpoint = forcePauseWorkflowRun(stored[workflowRunRawStorageKey], accountId, now)
+      if (checkpoint) {
+        await browser.storage.local.set({ [workflowRunRawStorageKey]: checkpoint })
+      }
+      return checkpoint
+    })
+  }
+
+  async resetWorkflowRunFilters(accountId: string, now: number) {
+    return mutateWorkflowRun(async () => {
+      const stored = await browser.storage.local.get(workflowRunRawStorageKey)
+      const checkpoint = resetWorkflowRunFilters(stored[workflowRunRawStorageKey], accountId, now)
+      if (checkpoint) {
+        await browser.storage.local.set({ [workflowRunRawStorageKey]: checkpoint })
+      }
+      return checkpoint
+    })
+  }
+
   async sessionStorageGet<T>(key: string, defaultValue: T): Promise<T> {
     const value = await browser.storage.session.get(key)
     return (value[key] as T | undefined) ?? defaultValue

@@ -58,6 +58,42 @@ export class ContentCounter implements BackgroundCounter {
     return this.background.fetch(...args)
   }
 
+  async getWorkflowOwnerId(runtimeId: string) {
+    const response = await browser.runtime.sendMessage({
+      type: 'boss-helper:get-workflow-owner-id',
+      runtimeId,
+    })
+    if (
+      typeof response !== 'object' ||
+      response === null ||
+      !('ownerId' in response) ||
+      typeof response.ownerId !== 'string'
+    ) {
+      throw new Error('无法确定工作流所在标签页')
+    }
+    return response.ownerId
+  }
+
+  async readWorkflowRun(...args: Parameters<BackgroundCounter['readWorkflowRun']>) {
+    return this.background.readWorkflowRun(...args)
+  }
+
+  async claimWorkflowRun(...args: Parameters<BackgroundCounter['claimWorkflowRun']>) {
+    return this.background.claimWorkflowRun(...args)
+  }
+
+  async updateWorkflowRun(...args: Parameters<BackgroundCounter['updateWorkflowRun']>) {
+    return this.background.updateWorkflowRun(...args)
+  }
+
+  async pauseWorkflowRun(...args: Parameters<BackgroundCounter['pauseWorkflowRun']>) {
+    return this.background.pauseWorkflowRun(...args)
+  }
+
+  async resetWorkflowRunFilters(...args: Parameters<BackgroundCounter['resetWorkflowRunFilters']>) {
+    return this.background.resetWorkflowRunFilters(...args)
+  }
+
   async sessionStorageGet<T>(key: string, defaultValue: T) {
     return this.background.sessionStorageGet(key, defaultValue)
   }

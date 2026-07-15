@@ -25,6 +25,7 @@ async function waitForPageDetail(
   helper: BossHelperCtx,
   job: BossZpJobItemData,
   timeoutMs = 8000,
+  signal?: AbortSignal,
 ): Promise<BossZpDetailData> {
   return new Promise<BossZpDetailData>((resolve, reject) => {
     let timeout: ReturnType<typeof setTimeout> | undefined
@@ -32,7 +33,16 @@ async function waitForPageDetail(
     const cleanup = () => {
       if (timeout) clearTimeout(timeout)
       if (interval) clearInterval(interval)
+      signal?.removeEventListener('abort', onAbort)
     }
+
+    const onAbort = () => {
+      cleanup()
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+
+    if (signal?.aborted) return onAbort()
+    signal?.addEventListener('abort', onAbort, { once: true })
 
     timeout = setTimeout(() => {
       cleanup()
@@ -47,16 +57,22 @@ async function waitForPageDetail(
   })
 }
 
-async function requestDetailFallback(job: BossZpJobItemData): Promise<BossZpDetailData> {
+async function requestDetailFallback(
+  job: BossZpJobItemData,
+  signal?: AbortSignal,
+): Promise<BossZpDetailData> {
   const lids = Array.from(new Set([job.lid, job.encryptJobId].filter(Boolean)))
   const errors: string[] = []
 
   for (const lid of lids) {
     try {
-      const res = await requestDetail({
-        securityId: job.securityId,
-        lid,
-      })
+      const res = await requestDetail(
+        {
+          securityId: job.securityId,
+          lid,
+        },
+        signal,
+      )
       if (res.code === 0 && res.zpData) {
         return res.zpData
       }
@@ -73,8 +89,20 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   defineTaskHandler(
     '已沟通',
     async () => {
-      return async (_, { rawData }) => {
+      return async (taskContext, { jobData, rawData, state }) => {
         if (rawData.jobitem.contact) {
+          if (taskContext.helper.workflow?.submissionPending(jobData.key)) {
+            taskContext.ensureActive?.()
+            const newlySubmitted = await taskContext.helper.workflow.confirmSubmission(jobData.key)
+            state.deliverySubmitted = true
+            state.deliveryNewlySubmitted = newlySubmitted
+            state.deliveryRecovered = true
+            logger.info('恢复时通过已沟通状态确认投递结果')
+            return {
+              status: 'success',
+              msg: '投递状态已恢复',
+            }
+          }
           return taskResult.skip('已沟通')
         }
       }
@@ -94,12 +122,16 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
     '岗位详情获取',
     () => async (ctx, job) => {
       ctx.helper._clickJobCardAction(job.rawData.jobitem)
-      const detail = await waitForPageDetail(ctx.helper, job.rawData.jobitem).catch(
-        async (pageError) => {
-          logger.warn('页面岗位详情获取失败，尝试接口获取', pageError)
-          return requestDetailFallback(job.rawData.jobitem)
-        },
-      )
+      const detail = await waitForPageDetail(
+        ctx.helper,
+        job.rawData.jobitem,
+        8000,
+        ctx.signal,
+      ).catch(async (pageError) => {
+        if (ctx.signal?.aborted) throw pageError
+        logger.warn('页面岗位详情获取失败，尝试接口获取', pageError)
+        return requestDetailFallback(job.rawData.jobitem, ctx.signal)
+      })
 
       job.rawData.detail = detail
       job.jobData = {
@@ -138,19 +170,52 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   tasks.amap({ deps: ['岗位详情获取'] }), // 高德地图
   tasks.aiFiltering({ deps: ['岗位详情获取'] }), // AI过滤
 
-  defineTaskHandler('岗位投递', (ctx) => async (_, { rawData }) => {
+  defineTaskHandler('岗位投递', (ctx) => async (taskContext, { jobData, rawData, state }) => {
     if (!ctx.helper.conf.formData.autoApplyEnabled.value) {
       return taskResult.skip('自动投递未启用')
     }
 
-    logger.info('发送投递请求', {
-      securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
-    })
-    await sendPublishReq({
-      securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
-    })
+    taskContext.ensureActive?.()
+    if (ctx.helper.workflow!.submissionConfirmed(jobData.key)) {
+      state.deliverySubmitted = true
+      state.deliveryNewlySubmitted ??= false
+      return {
+        status: 'success',
+        msg: '投递状态已恢复',
+      }
+    }
+    const submission = await ctx.helper.workflow!.beginSubmission(jobData.key)
+    taskContext.ensureActive?.()
+    if (
+      submission.needsReconciliation &&
+      (rawData.jobitem.contact || rawData.detail.relationInfo?.beFriend)
+    ) {
+      const newlySubmitted = await ctx.helper.workflow!.confirmSubmission(jobData.key)
+      state.deliverySubmitted = true
+      state.deliveryNewlySubmitted = newlySubmitted
+      state.deliveryRecovered = true
+      logger.info('恢复时确认岗位已经投递')
+      return {
+        status: 'success',
+        msg: '投递状态已恢复',
+      }
+    }
+
+    logger.info(submission.needsReconciliation ? '恢复未完成的投递请求' : '发送投递请求')
+    await sendPublishReq(
+      {
+        securityId: rawData.jobitem.securityId,
+        encryptJobId: rawData.jobitem.encryptJobId,
+      },
+      undefined,
+      3,
+      {},
+      taskContext.signal,
+    )
+    taskContext.ensureActive?.()
+    const newlySubmitted = await ctx.helper.workflow!.confirmSubmission(jobData.key)
+    state.deliverySubmitted = true
+    state.deliveryNewlySubmitted = newlySubmitted
     return {
       status: 'success',
       msg: '投递成功',

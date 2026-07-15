@@ -64,10 +64,10 @@ const batchProgress = computed(() => {
 const initializationLoading = computed(() => ctx.initializationStatus.value === 'loading')
 const initializationFailed = computed(() => ctx.initializationStatus.value === 'error')
 const stopReason = computed(() => ctx.workflow?.stopReason.value ?? null)
-const startBlockedByStopReason = computed(
-  () => stopReason.value?.code === 'context_invalidated',
-)
+const workflowRecovering = computed(() => ctx.workflow?.status.value === 'recovering')
+const startBlockedByStopReason = computed(() => stopReason.value?.code === 'context_invalidated')
 const startLabel = computed(() => {
+  if (workflowRecovering.value) return '恢复中'
   if (startBlockedByStopReason.value) return '刷新后重试'
   if (stopReason.value?.code === 'batch_limit') return '开始下一批'
   if (ctx.workflow?.status.value === 'stop') return '继续'
@@ -113,7 +113,6 @@ function percent(value: number) {
   if (!statistics.todayData.total) return '0.0'
   return ((value / statistics.todayData.total) * 100).toFixed(1)
 }
-
 </script>
 
 <template>
@@ -164,6 +163,16 @@ function percent(value: number) {
         {{ stopReasonActionLabel }}
       </UButton>
     </div>
+    <UAlert
+      v-if="ctx.workflow?.recoveryMessage.value"
+      role="status"
+      aria-live="polite"
+      color="info"
+      variant="subtle"
+      title="正在核验执行状态"
+      :description="ctx.workflow.recoveryMessage.value"
+      data-testid="workflow-recovery-status"
+    />
     <div
       v-if="conf.configLevel.intermediate"
       class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5"
@@ -224,11 +233,9 @@ function percent(value: number) {
         <UButton
           color="primary"
           data-help="点击开始就会开始投递"
-          :loading="initializationLoading || ctx.workflow?.status.value === 'running'"
+          :loading="initializationLoading || ctx.workflowRunning.value"
           :disabled="
-            !ctx.initializationReady.value ||
-            startBlockedByStopReason ||
-            ctx.workflow?.status.value === 'running'
+            !ctx.initializationReady.value || startBlockedByStopReason || ctx.workflowRunning.value
           "
           @click="ctx.start()"
         >
@@ -243,7 +250,7 @@ function percent(value: number) {
           重置筛选
         </UButton>
         <UButton
-          v-if="ctx.workflow?.status.value === 'running'"
+          v-if="ctx.workflowRunning.value"
           color="warning"
           data-help="暂停后应该能继续"
           @click="ctx.stop()"

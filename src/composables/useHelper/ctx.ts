@@ -4,13 +4,13 @@ import { UserContent } from 'ai'
 import { computed, Reactive, ref, Ref } from 'vue'
 
 import { useConf } from '@/composables/conf'
+import { createInitializationGate } from '@/composables/initializationGate'
 import { DeliveryWorkflow } from '@/composables/useApplying'
 import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel/test'
 import { createExtensionStatisticsStore } from '@/composables/useStatistics'
-import { createInitializationGate } from '@/composables/initializationGate'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { logger } from '@/utils/logger'
 
@@ -40,7 +40,9 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
 
   chatModel: ChatModel
   workflow: DeliveryWorkflow<C, T, S> | null = null
-  workflowRunning = computed(() => this.workflow?.status.value === 'running')
+  workflowRunning = computed(
+    () => this.workflow?.status.value === 'running' || this.workflow?.status.value === 'recovering',
+  )
   jobResultMaps: Reactive<Map<string, TaskResult>>
 
   abstract jobList: Ref<JobData[]>
@@ -129,6 +131,11 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     this.viewDisposers.clear()
   }
 
+  async suspendView(trigger = 'view_disconnected') {
+    this.disposeView()
+    await this.workflow?.suspendForLifecycle(trigger)
+  }
+
   registerDisposer(disposer: () => void) {
     this.disposers.add(disposer)
     return disposer
@@ -138,6 +145,26 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     if (this.disposed) return
     this.disposed = true
     this.stop()
+    this.disposeView()
+    if (this.netConfTimer) {
+      clearInterval(this.netConfTimer)
+      this.netConfTimer = null
+    }
+    this.statistics.dispose()
+    for (const disposer of this.disposers) {
+      try {
+        disposer()
+      } catch (error) {
+        logger.warn('全局资源释放失败', error)
+      }
+    }
+    this.disposers.clear()
+  }
+
+  async disposeForLifecycle(trigger = 'page_lifecycle') {
+    if (this.disposed) return
+    await this.workflow?.suspendForLifecycle(trigger)
+    this.disposed = true
     this.disposeView()
     if (this.netConfTimer) {
       clearInterval(this.netConfTimer)

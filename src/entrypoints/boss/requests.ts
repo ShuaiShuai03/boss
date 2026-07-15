@@ -29,6 +29,7 @@ export type RequestBossDataOptions = {
   errorMsg?: string
   retries?: number
   retryDelayMs?: number
+  signal?: AbortSignal
 }
 
 function normalizePublishResponse(res: any): PublishResponse {
@@ -50,8 +51,26 @@ function normalizeRequestBossDataOptions(
   return { retries, retryDelayMs: 2000, ...options }
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
+function requestSignal(signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }
+    const timeout = window.setTimeout(finish, ms)
+    const onAbort = () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function getBossToken() {
@@ -62,7 +81,10 @@ function getBossToken() {
   }
 }
 
-export async function requestDetail(params: { securityId: string; lid: string }): Promise<{
+export async function requestDetail(
+  params: { securityId: string; lid: string },
+  signal?: AbortSignal,
+): Promise<{
   code: number
   message: string
   zpData: BossZpDetailData
@@ -82,7 +104,7 @@ export async function requestDetail(params: { securityId: string; lid: string })
 
   return fetch(url.toString(), {
     headers: { Zp_token: token },
-    signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+    signal: requestSignal(signal),
   }).then((r) => r.json())
 }
 
@@ -91,6 +113,7 @@ export async function sendPublishReq(
   errorMsg?: string,
   retries = 3,
   _params = {},
+  signal?: AbortSignal,
 ): Promise<PublishResponse> {
   if (retries <= 0) {
     throw new PublishError(errorMsg ?? '重试多次失败')
@@ -114,7 +137,7 @@ export async function sendPublishReq(
     const rawRes = await fetch(url, {
       method: 'POST',
       headers: { Zp_token: token },
-      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+      signal: requestSignal(signal),
     }).then((r) => r.json())
     const res = normalizePublishResponse(rawRes)
 
@@ -133,14 +156,14 @@ export async function sendPublishReq(
           await fetch(url, {
             method: 'POST',
             headers: { Zp_token: token },
-            signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+            signal: requestSignal(signal),
           })
 
           const nextRetries = retries - 1
           if (nextRetries <= 0) {
             throw new PublishError(`投递限制确认后仍未成功: ${content}`)
           }
-          return sendPublishReq(data, undefined, nextRetries, { cid: 1 })
+          return sendPublishReq(data, undefined, nextRetries, { cid: 1 }, signal)
         } catch (e) {
           if (e instanceof BossHelperError) {
             throw e
@@ -163,7 +186,8 @@ export async function sendPublishReq(
     if (e instanceof BossHelperError) {
       throw e
     }
-    return sendPublishReq(data, e?.message as string, retries - 1)
+    if (signal?.aborted) throw e
+    return sendPublishReq(data, e?.message as string, retries - 1, _params, signal)
   }
 }
 
@@ -201,14 +225,14 @@ export async function requestBossData(
       body: body,
       method: 'POST',
       headers: { Zp_token: token },
-      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+      signal: requestSignal(opt.signal),
     }).then((r) => r.json())
 
     if (res.code !== 0) {
       if (res.message === '非好友关系') {
         const nextRetries = retryCount - 1
         if (nextRetries > 0) {
-          await sleep(opt.retryDelayMs ?? 2000)
+          await sleep(opt.retryDelayMs ?? 2000, opt.signal)
         }
         return await requestBossData(job, { ...opt, errorMsg: '非好友关系', retries: nextRetries })
       }
@@ -234,6 +258,7 @@ export async function requestBossData(
     if (e instanceof GreetError) {
       throw e
     }
+    if (opt.signal?.aborted) throw e
     return requestBossData(job, { ...opt, errorMsg: e?.message as string, retries: retryCount - 1 })
   }
 }

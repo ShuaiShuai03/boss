@@ -1,7 +1,7 @@
 import ui from '@nuxt/ui/vite'
 import vueJsx from '@vitejs/plugin-vue-jsx'
-import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
 import { transformWithEsbuild } from 'vite'
+import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
 import { defineConfig } from 'wxt'
 
 import { version } from './package.json'
@@ -118,7 +118,7 @@ export default defineConfig({
     default_locale: 'zh_CN',
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
-    permissions: ['storage', 'notifications'],
+    permissions: ['storage', 'notifications', 'alarms'],
     web_accessible_resources: [
       {
         resources: ['boss.js', 'chat-socket-main-world.js', 'chunks/*'],

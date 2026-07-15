@@ -20,6 +20,8 @@ export type TaskPipeline<C extends HelperContext<C, T, S>, T, S> = Array<Task<C,
 export type TaskContext<C extends HelperContext<C, T, S>, T = any, S = any> = {
   now: Date
   helper: C
+  signal?: AbortSignal
+  ensureActive?: () => void
 }
 
 export const jobStatusList = [

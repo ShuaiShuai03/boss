@@ -1,16 +1,36 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { preparePresetSwitch, formDataKeyForPreset } from '../src/composables/conf/preset.ts'
-import { migrateFormData } from '../src/composables/conf/migration.ts'
+import { jobStatusTokens } from '../src/components/jobStatusTokens.ts'
 import { defaultFormData } from '../src/composables/conf/info.ts'
+import { migrateFormData } from '../src/composables/conf/migration.ts'
+import { preparePresetSwitch, formDataKeyForPreset } from '../src/composables/conf/preset.ts'
 import { createInitializationGate } from '../src/composables/initializationGate.ts'
 import {
   createStatisticsStore,
   statisticsKey,
   todayKey,
 } from '../src/composables/statisticsStore.ts'
-import { jobStatusTokens } from '../src/components/jobStatusTokens.ts'
+import {
+  WorkflowRunCoordinator,
+  WorkflowRunTransportError,
+} from '../src/composables/useApplying/runCoordinator.ts'
+import {
+  beginWorkflowSubmission,
+  claimWorkflowRun,
+  completeWorkflowJob,
+  confirmWorkflowSubmission,
+  createWorkflowRunCheckpoint,
+  heartbeatWorkflowRun,
+  markWorkflowJobCounted,
+  pauseWorkflowRun,
+  releaseWorkflowRun,
+  resumePausedWorkflowRun,
+  workflowRunIsStale,
+  forcePauseWorkflowRun,
+  normalizeWorkflowRunCheckpoint,
+  resetWorkflowRunFilters,
+} from '../src/composables/useApplying/runState.ts'
 import { createWorkflowStopReason } from '../src/composables/useApplying/stopReason.ts'
 import {
   mutateAndPersistModelData,
@@ -56,12 +76,8 @@ const migratedFormData = migrateFormData(legacyFormData, defaultFormData)
 assert.equal(migratedFormData.version, '20260521')
 assert.deepEqual(migratedFormData.salaryRange.value, [10, 20, false])
 assert.deepEqual(migratedFormData.companySizeRange.value, [50, 500, false])
-assert.deepEqual(migratedFormData.aiFiltering.prompt, [
-  { role: 'user', content: '旧版筛选提示词' },
-])
-assert.deepEqual(migratedFormData.aiGreeting.prompt, [
-  { role: 'user', content: '旧版招呼提示词' },
-])
+assert.deepEqual(migratedFormData.aiFiltering.prompt, [{ role: 'user', content: '旧版筛选提示词' }])
+assert.deepEqual(migratedFormData.aiGreeting.prompt, [{ role: 'user', content: '旧版招呼提示词' }])
 assert.equal(migratedFormData.jobAddress.include, true)
 assert.equal(migratedFormData.dailyLimit.value, 12)
 assert.equal(migratedFormData.futureTopLevelValue, 'preserved')
@@ -78,7 +94,10 @@ assert.throws(
   /历史薪资范围不是有效范围/,
 )
 
-assert.equal(normalizeStoredModelData(null, '模型配置', (model) => model), null)
+assert.equal(
+  normalizeStoredModelData(null, '模型配置', (model) => model),
+  null,
+)
 assert.deepEqual(
   normalizeStoredModelData([{ key: 'model-a' }], '模型配置', (model) => model),
   [{ key: 'model-a' }],
@@ -105,6 +124,262 @@ for (const [code, [title, severity]] of Object.entries(expectedStopReasons)) {
     severity,
   })
 }
+
+const runClaim = {
+  runId: 'run-a',
+  ownerId: 'tab:1:runtime:a',
+  accountId: 'account-a',
+  batchLimit: 3,
+}
+let runCheckpoint = createWorkflowRunCheckpoint(runClaim, 1_000)
+assert.equal(workflowRunIsStale(runCheckpoint, 151_000), false)
+assert.equal(workflowRunIsStale(runCheckpoint, 151_001), true)
+
+const activeLeaseConflict = claimWorkflowRun(
+  runCheckpoint,
+  { ...runClaim, ownerId: 'tab:2:runtime:b' },
+  2_000,
+)
+assert.equal(activeLeaseConflict.claimed, false, 'a fresh executor lease must not be stolen')
+
+const sameTabReloadRecovery = claimWorkflowRun(
+  runCheckpoint,
+  { ...runClaim, ownerId: 'tab:1:runtime:b' },
+  2_000,
+)
+assert.equal(
+  sameTabReloadRecovery.claimed,
+  true,
+  'the same tab must reclaim its lease after reload',
+)
+assert.equal(sameTabReloadRecovery.checkpoint.lastTransition, 'tab_runtime_recovered')
+
+const staleLeaseRecovery = claimWorkflowRun(
+  runCheckpoint,
+  { ...runClaim, ownerId: 'tab:2:runtime:b' },
+  151_001,
+)
+assert.equal(staleLeaseRecovery.claimed, true)
+assert.equal(staleLeaseRecovery.checkpoint.ownerId, 'tab:2:runtime:b')
+assert.equal(staleLeaseRecovery.checkpoint.phase, 'recovering')
+assert.equal(staleLeaseRecovery.checkpoint.lastTransition, 'stale_run_recovered')
+
+runCheckpoint = createWorkflowRunCheckpoint(runClaim, 1_000)
+const counted = markWorkflowJobCounted(runCheckpoint, runClaim.ownerId, 'job-a', 2_000)
+assert.ok(counted)
+assert.equal(counted.newlyCounted, true)
+const countedAgain = markWorkflowJobCounted(counted.checkpoint, runClaim.ownerId, 'job-a', 2_100)
+assert.ok(countedAgain)
+assert.equal(countedAgain.newlyCounted, false, 'recovery must not double-count scanned jobs')
+
+const submissionIntent = beginWorkflowSubmission(
+  countedAgain.checkpoint,
+  runClaim.ownerId,
+  'job-a',
+  2_200,
+)
+assert.ok(submissionIntent)
+assert.deepEqual(submissionIntent.submissionIntentJobKeys, ['job-a'])
+const submission = confirmWorkflowSubmission(submissionIntent, runClaim.ownerId, 'job-a', 2_300)
+assert.ok(submission)
+assert.equal(submission.newlySubmitted, true)
+assert.equal(submission.checkpoint.batchSubmitted, 1)
+const submissionAgain = confirmWorkflowSubmission(
+  submission.checkpoint,
+  runClaim.ownerId,
+  'job-a',
+  2_400,
+)
+assert.ok(submissionAgain)
+assert.equal(submissionAgain.newlySubmitted, false, 'submission confirmation must be idempotent')
+assert.equal(submissionAgain.checkpoint.batchSubmitted, 1)
+
+const completed = completeWorkflowJob(
+  submissionAgain.checkpoint,
+  runClaim.ownerId,
+  'job-a',
+  { status: 'success', msg: '投递成功' },
+  true,
+  2_500,
+)
+assert.ok(completed)
+assert.equal(completed.results['job-a'].delivered, true)
+
+const countedFiltered = markWorkflowJobCounted(completed, runClaim.ownerId, 'job-b', 2_600)
+assert.ok(countedFiltered)
+const completedFiltered = completeWorkflowJob(
+  countedFiltered.checkpoint,
+  runClaim.ownerId,
+  'job-b',
+  { status: 'warn', msg: '筛选跳过' },
+  false,
+  2_700,
+)
+assert.ok(completedFiltered)
+const filtersReset = resetWorkflowRunFilters(completedFiltered, runClaim.accountId, 2_800)
+assert.ok(filtersReset)
+assert.deepEqual(filtersReset.countedJobKeys, ['job-a'])
+assert.deepEqual(Object.keys(filtersReset.results), ['job-a'])
+assert.deepEqual(filtersReset.submittedJobKeys, ['job-a'])
+assert.equal(filtersReset.batchSubmitted, 1)
+
+const released = releaseWorkflowRun(filtersReset, runClaim.ownerId, 3_000, 'page_lifecycle')
+assert.ok(released)
+assert.equal(released.ownerId, null)
+assert.equal(released.intent, 'running', 'lifecycle loss must preserve automatic recovery intent')
+const lifecycleRecovery = claimWorkflowRun(released, { ...runClaim, ownerId: 'runtime-b' }, 3_001)
+assert.equal(lifecycleRecovery.claimed, true, 'a released lifecycle lease must recover immediately')
+assert.equal(lifecycleRecovery.checkpoint.batchSubmitted, 1)
+assert.equal(lifecycleRecovery.checkpoint.results['job-a'].delivered, true)
+
+const paused = pauseWorkflowRun(runCheckpoint, runClaim.ownerId, 4_000)
+assert.ok(paused)
+assert.equal(paused.intent, 'paused')
+assert.equal(
+  claimWorkflowRun(paused, { ...runClaim, ownerId: 'runtime-b' }, 999_999).claimed,
+  false,
+  'manual pause must remain authoritative even after the lease is stale',
+)
+const manuallyResumed = resumePausedWorkflowRun(
+  paused,
+  { ...runClaim, ownerId: 'runtime-b' },
+  1_000_000,
+)
+assert.equal(manuallyResumed.intent, 'running')
+assert.equal(manuallyResumed.ownerId, 'runtime-b')
+
+assert.equal(
+  heartbeatWorkflowRun(runCheckpoint, 'wrong-owner', 5_000),
+  null,
+  'an orphaned executor must not update a replacement lease',
+)
+
+class MemoryWorkflowRunTransport {
+  checkpoint = null
+  hang = false
+
+  async readWorkflowRun() {
+    if (this.hang) return new Promise(() => {})
+    return structuredClone(this.checkpoint)
+  }
+
+  async claimWorkflowRun(claim, now, resumePaused = false) {
+    if (this.hang) return new Promise(() => {})
+    const normalized = normalizeWorkflowRunCheckpoint(this.checkpoint)
+    const result =
+      resumePaused && normalized?.intent === 'paused'
+        ? { claimed: true, checkpoint: resumePausedWorkflowRun(this.checkpoint, claim, now) }
+        : claimWorkflowRun(this.checkpoint, claim, now)
+    if (result.claimed) this.checkpoint = structuredClone(result.checkpoint)
+    return structuredClone(result)
+  }
+
+  async updateWorkflowRun(runId, ownerId, next) {
+    if (this.hang) return new Promise(() => {})
+    const current = normalizeWorkflowRunCheckpoint(this.checkpoint)
+    if (!current || current.runId !== runId || current.ownerId !== ownerId) {
+      return { updated: false, checkpoint: structuredClone(current) }
+    }
+    this.checkpoint = structuredClone(next)
+    return { updated: true, checkpoint: structuredClone(next) }
+  }
+
+  async pauseWorkflowRun(accountId, now) {
+    if (this.hang) return new Promise(() => {})
+    this.checkpoint = forcePauseWorkflowRun(this.checkpoint, accountId, now)
+    return structuredClone(this.checkpoint)
+  }
+
+  async resetWorkflowRunFilters(accountId, now) {
+    if (this.hang) return new Promise(() => {})
+    this.checkpoint = resetWorkflowRunFilters(this.checkpoint, accountId, now)
+    return structuredClone(this.checkpoint)
+  }
+}
+
+let coordinatorNow = 10_000
+const workflowTransport = new MemoryWorkflowRunTransport()
+const coordinatorA = new WorkflowRunCoordinator(
+  workflowTransport,
+  { ...runClaim, runId: 'coordinator-run' },
+  () => coordinatorNow,
+  20,
+)
+assert.equal(await coordinatorA.acquire(), true)
+assert.equal(await coordinatorA.countJob('job-a'), true)
+assert.deepEqual(await coordinatorA.beginSubmission('job-a'), { needsReconciliation: false })
+assert.equal(await coordinatorA.confirmSubmission('job-a'), true)
+await coordinatorA.completeJob('job-a', { status: 'success', msg: '投递成功' }, true)
+
+const supersededCheckpoint = structuredClone(coordinatorA.checkpoint)
+coordinatorNow += 1
+const reloadedCoordinator = new WorkflowRunCoordinator(
+  workflowTransport,
+  { ...runClaim, runId: 'ignored-reload-run', ownerId: 'tab:1:runtime:reloaded' },
+  () => coordinatorNow,
+  20,
+)
+assert.equal(
+  await reloadedCoordinator.acquire(),
+  true,
+  'same-tab reload must replace the page owner',
+)
+const lateHeartbeat = heartbeatWorkflowRun(
+  supersededCheckpoint,
+  supersededCheckpoint.ownerId,
+  coordinatorNow + 1,
+)
+assert.ok(lateHeartbeat)
+assert.equal(
+  (
+    await workflowTransport.updateWorkflowRun(
+      supersededCheckpoint.runId,
+      supersededCheckpoint.ownerId,
+      lateHeartbeat,
+    )
+  ).updated,
+  false,
+  'a late write from the superseded page must not overwrite recovered progress',
+)
+await reloadedCoordinator.release('page_lifecycle')
+
+coordinatorNow += 1
+const coordinatorB = new WorkflowRunCoordinator(
+  workflowTransport,
+  { ...runClaim, runId: 'ignored-new-run', ownerId: 'runtime-b' },
+  () => coordinatorNow,
+  20,
+)
+assert.equal(await coordinatorB.acquire(), true, 'a replacement runtime must claim a released run')
+assert.equal(coordinatorB.hasCompleted('job-a'), true)
+assert.equal(coordinatorB.hasSubmitted('job-a'), true)
+assert.equal(coordinatorB.checkpoint.batchSubmitted, 1)
+assert.deepEqual(
+  await coordinatorB.beginSubmission('job-a'),
+  { needsReconciliation: false },
+  'confirmed submissions must never become recovery intents again',
+)
+assert.equal(await coordinatorB.confirmSubmission('job-a'), false)
+assert.equal(coordinatorB.checkpoint.batchSubmitted, 1)
+
+await coordinatorB.pause()
+coordinatorNow += 1_000_000
+const coordinatorC = new WorkflowRunCoordinator(
+  workflowTransport,
+  { ...runClaim, runId: 'coordinator-c', ownerId: 'runtime-c' },
+  () => coordinatorNow,
+  20,
+)
+assert.equal(await coordinatorC.acquire(), false, 'automatic recovery must respect manual pause')
+assert.equal(
+  await coordinatorC.acquire(true),
+  true,
+  'an explicit user action may resume a paused run',
+)
+
+workflowTransport.hang = true
+await assert.rejects(coordinatorC.read(), WorkflowRunTransportError)
+workflowTransport.hang = false
 
 const presetEvents = []
 const switched = await preparePresetSwitch({
@@ -136,8 +411,14 @@ await assert.rejects(
 assert.equal(persistedFailedPreset, false)
 
 const presetStorage = new MemoryStorage()
-presetStorage.values.set(formDataKeyForPreset('profile-a'), { profile: 'profile-a', deliveryLimit: 3 })
-presetStorage.values.set(formDataKeyForPreset('profile-b'), { profile: 'profile-b', deliveryLimit: 9 })
+presetStorage.values.set(formDataKeyForPreset('profile-a'), {
+  profile: 'profile-a',
+  deliveryLimit: 3,
+})
+presetStorage.values.set(formDataKeyForPreset('profile-b'), {
+  profile: 'profile-b',
+  deliveryLimit: 9,
+})
 const profileB = await preparePresetSwitch({
   value: 'profile-b',
   load: (value) => presetStorage.storageGet(formDataKeyForPreset(value), {}),
@@ -230,7 +511,11 @@ const forcedReload = createStatisticsStore(forcedReloadStorage, '2026-07-14')
 await forcedReload.initialize()
 forcedReload.todayData.total += 1
 await forcedReload.initialize(true)
-assert.equal(forcedReload.todayData.total, 1, 'forced reload must flush pending in-memory statistics')
+assert.equal(
+  forcedReload.todayData.total,
+  1,
+  'forced reload must flush pending in-memory statistics',
+)
 assert.equal(forcedReloadStorage.values.get(todayKey).total, 1)
 
 const invalidStatisticsStorage = new MemoryStorage()
@@ -359,8 +644,14 @@ assert.deepEqual(
 assert.deepEqual(modelSuccessEvents, [])
 releaseModelPersistence()
 await pendingModelPersistence
-assert.deepEqual(modelData.map((model) => model.key), ['model-a', 'model-b'])
-assert.deepEqual(persistedModels[0].map((model) => model.key), ['model-a', 'model-b'])
+assert.deepEqual(
+  modelData.map((model) => model.key),
+  ['model-a', 'model-b'],
+)
+assert.deepEqual(
+  persistedModels[0].map((model) => model.key),
+  ['model-a', 'model-b'],
+)
 assert.deepEqual(modelSuccessEvents, ['saved'])
 
 await assert.rejects(

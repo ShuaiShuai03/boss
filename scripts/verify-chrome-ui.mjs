@@ -14,8 +14,11 @@ const browserErrors = []
 const expectedFailureConsoleErrors = []
 const bossChunkRequests = new Set()
 let context
+let lifecycleSubmissionRequests = 0
+let holdLifecycleSubmission = false
+let releaseLifecycleSubmission
 
-function fixtureHtml() {
+function fixtureHtml({ contact = true } = {}) {
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -37,6 +40,7 @@ function fixtureHtml() {
     </div>
     <script>
       (() => {
+        window.Cookie = { get: () => 'fixture-token' }
         const aiReplyEvent = 'boss-helper:ai-reply-message'
         const aiReplyListeners = new Set()
         const activeIntervals = new Map()
@@ -113,7 +117,7 @@ function fixtureHtml() {
           brandScaleName: '100-499人',
           welfareList: ['双休', '五险一金'],
           industry: 100020,
-          contact: true,
+          contact: ${contact},
           showTopPosition: false,
         }
         const detail = {
@@ -242,6 +246,7 @@ function fixtureHtml() {
               aiReplyListeners: aiReplyListeners.size,
               intervals: activeIntervals.size,
               intervalDetails: [...activeIntervals.values()],
+              routeHooks: rootVue.$router.afterHooks.length,
               hosts: document.querySelectorAll('boss-helper-job').length,
               hookedDataKeys: ['jobList', 'pageVo', 'hasMore', 'jobDetail'].filter(
                 (key) => typeof Object.getOwnPropertyDescriptor(componentState, key)?.set === 'function',
@@ -334,6 +339,50 @@ function trackPage(page) {
   })
 }
 
+function trackWorker(worker) {
+  worker.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(`${worker.url()}: ${message.text()}`)
+  })
+}
+
+function waitForServiceWorkerVersion(session, predicate, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      session.off('ServiceWorker.workerVersionUpdated', handleVersions)
+      reject(new Error('Timed out waiting for service worker state'))
+    }, timeoutMs)
+    const handleVersions = ({ versions }) => {
+      const candidate = versions.find(predicate)
+      if (!candidate) return
+      clearTimeout(timeout)
+      session.off('ServiceWorker.workerVersionUpdated', handleVersions)
+      resolve(candidate)
+    }
+    session.on('ServiceWorker.workerVersionUpdated', handleVersions)
+  })
+}
+
+async function restartServiceWorker(context, page, scriptUrl, wake) {
+  const session = await context.newCDPSession(page)
+  try {
+    const initialVersionPromise = waitForServiceWorkerVersion(
+      session,
+      (item) => item.scriptURL === scriptUrl && item.runningStatus === 'running',
+    )
+    await session.send('ServiceWorker.enable')
+    const version = await initialVersionPromise
+    await session.send('ServiceWorker.stopWorker', { versionId: version.versionId })
+    const restartedVersionPromise = waitForServiceWorkerVersion(
+      session,
+      (item) => item.scriptURL === scriptUrl && item.runningStatus === 'running',
+    )
+    await wake()
+    await restartedVersionPromise
+  } finally {
+    await session.detach()
+  }
+}
+
 async function extensionStorage(worker, area, operation, value) {
   return worker.evaluate(
     async ({ area, operation, value }) => {
@@ -394,6 +443,15 @@ async function waitForContextPage(context, predicate, timeoutMs = 5000) {
   throw new Error('Timed out waiting for the expected browser page')
 }
 
+async function waitForCondition(predicate, label, timeoutMs = 10_000) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(`Timed out waiting for ${label}`)
+}
+
 async function assertNoPageOverflow(page, width, label) {
   await page.setViewportSize({ width, height: 900 })
   const overflow = await page.evaluate(() => ({
@@ -405,7 +463,10 @@ async function assertNoPageOverflow(page, width, label) {
     overflow.scrollWidth <= overflow.clientWidth + 1,
     `Page overflows for ${label}: ${overflow.scrollWidth} > ${overflow.clientWidth}`,
   )
-  assert.ok(overflow.hostRight <= overflow.clientWidth + 1, `BossHelper host is clipped for ${label}`)
+  assert.ok(
+    overflow.hostRight <= overflow.clientWidth + 1,
+    `BossHelper host is clipped for ${label}`,
+  )
 }
 
 function requestedBossChunks() {
@@ -430,12 +491,19 @@ async function auditControls(page) {
           return false
         }
         const style = getComputedStyle(control)
-        return style.display !== 'none' && style.visibility !== 'hidden' && control.getClientRects().length > 0
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          control.getClientRects().length > 0
+        )
       })
       .filter((control) => {
         const labelledBy = control.getAttribute('aria-labelledby')
         const ariaLabel = control.getAttribute('aria-label')
-        const labels = 'labels' in control ? [...control.labels].map((label) => label.textContent?.trim()).filter(Boolean) : []
+        const labels =
+          'labels' in control
+            ? [...control.labels].map((label) => label.textContent?.trim()).filter(Boolean)
+            : []
         return !ariaLabel && !labelledBy && labels.length === 0
       })
       .map((control) => ({
@@ -450,7 +518,11 @@ async function auditControls(page) {
 }
 
 function relativeLuminance(rgb) {
-  const channels = rgb.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? []
+  const channels =
+    rgb
+      .match(/[\d.]+/g)
+      ?.slice(0, 3)
+      .map(Number) ?? []
   const linear = channels.map((channel) => {
     const value = channel / 255
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
@@ -469,10 +541,7 @@ try {
     channel: 'chromium',
     headless: true,
     viewport: { width: 1024, height: 900 },
-    args: [
-      `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`,
-    ],
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   })
   context.on('page', trackPage)
   context.on('weberror', (webError) => browserErrors.push(webError.error().message))
@@ -487,13 +556,35 @@ try {
       }),
     }),
   )
-  await context.route('https://www.zhipin.com/**', (route) => {
+  await context.route('https://www.zhipin.com/**', async (route) => {
     const requestUrl = new URL(route.request().url())
-    if (route.request().isNavigationRequest() && requestUrl.searchParams.has('boss-helper-fixture')) {
+    if (
+      route.request().isNavigationRequest() &&
+      requestUrl.searchParams.has('boss-helper-fixture')
+    ) {
+      const lifecycleFixture = requestUrl.searchParams.get('boss-helper-fixture') === 'lifecycle'
       return route.fulfill({
         status: 200,
         contentType: 'text/html; charset=utf-8',
-        body: fixtureHtml(),
+        body: fixtureHtml({
+          contact: lifecycleFixture ? lifecycleSubmissionRequests > 0 : true,
+        }),
+      })
+    }
+    if (
+      requestUrl.pathname.endsWith('/wapi/zpgeek/friend/add.json') &&
+      route.request().frame().url().includes('boss-helper-fixture=lifecycle')
+    ) {
+      lifecycleSubmissionRequests += 1
+      if (holdLifecycleSubmission) {
+        await new Promise((resolve) => {
+          releaseLifecycleSubmission = resolve
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ code: 0, message: 'success', zpData: {} }),
       })
     }
     return route.abort()
@@ -501,9 +592,7 @@ try {
 
   let [worker] = context.serviceWorkers()
   worker ??= await context.waitForEvent('serviceworker')
-  worker.on('console', (message) => {
-    if (message.type() === 'error') browserErrors.push(`${worker.url()}: ${message.text()}`)
-  })
+  trackWorker(worker)
   assert.match(worker.url(), /^chrome-extension:\/\/[^/]+\/background\.js$/)
   const extensionId = new URL(worker.url()).host
 
@@ -624,19 +713,25 @@ try {
   const detailsButton = host.locator('.card-details-toggle').first()
   await detailsButton.waitFor()
   assert.equal((await detailsButton.innerText()).trim(), '展开职位详情')
-  const cardLayout = await host.locator('.job-card').first().evaluate((element) => {
-    const card = getComputedStyle(element)
-    const grid = getComputedStyle(element.parentElement)
-    return {
-      transform: card.transform,
-      marginLeft: card.marginLeft,
-      scrollbarGutter: grid.scrollbarGutter,
-    }
-  })
+  const cardLayout = await host
+    .locator('.job-card')
+    .first()
+    .evaluate((element) => {
+      const card = getComputedStyle(element)
+      const grid = getComputedStyle(element.parentElement)
+      return {
+        transform: card.transform,
+        marginLeft: card.marginLeft,
+        scrollbarGutter: grid.scrollbarGutter,
+      }
+    })
   assert.equal(cardLayout.transform, 'none')
   assert.equal(cardLayout.marginLeft, '0px')
   assert.match(cardLayout.scrollbarGutter, /stable/)
-  assert.match(await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(), /7\s*份/)
+  assert.match(
+    await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(),
+    /7\s*份/,
+  )
 
   const initialChunks = requestedBossChunks()
   for (const feature of ['Config', 'AI', 'Logs', 'About']) {
@@ -706,16 +801,25 @@ try {
   await helpTarget.evaluate((element) =>
     element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' })),
   )
-  assert.equal(await host.locator('.overlay-box').evaluate((element) => getComputedStyle(element).display), 'block')
+  assert.equal(
+    await host.locator('.overlay-box').evaluate((element) => getComputedStyle(element).display),
+    'block',
+  )
   await page.keyboard.press('Escape')
-  assert.equal(await host.locator('.overlay-box').evaluate((element) => getComputedStyle(element).display), 'none')
+  assert.equal(
+    await host.locator('.overlay-box').evaluate((element) => getComputedStyle(element).display),
+    'none',
+  )
 
   await host.getByRole('tab', { name: 'AI', exact: true }).click()
   assert.ok(
     requestedBossChunks().some((name) => name.includes('boss-AI-')),
     'AI chunk was not loaded after opening the AI tab',
   )
-  const aiToggle = host.locator('button[aria-pressed]').filter({ hasText: /已启用|已停用/ }).first()
+  const aiToggle = host
+    .locator('button[aria-pressed]')
+    .filter({ hasText: /已启用|已停用/ })
+    .first()
   await aiToggle.waitFor()
   await assertNoPageOverflow(page, 512, 'AI tab at 200% zoom-equivalent width')
   await assertNoPageOverflow(page, 256, 'AI tab at 400% zoom-equivalent width')
@@ -744,8 +848,14 @@ try {
   controlAudit = await auditControls(page)
   assert.deepEqual(controlAudit.duplicateIds, [])
   assert.deepEqual(controlAudit.unnamedControls, [])
-  await host.getByRole('dialog', { name: '创建AI模型' }).getByRole('button', { name: '取消' }).click()
-  await host.getByRole('dialog', { name: 'Ai模型配置' }).getByRole('button', { name: '完成' }).click()
+  await host
+    .getByRole('dialog', { name: '创建AI模型' })
+    .getByRole('button', { name: '取消' })
+    .click()
+  await host
+    .getByRole('dialog', { name: 'Ai模型配置' })
+    .getByRole('button', { name: '完成' })
+    .click()
 
   await host.getByRole('button', { name: '配置AI招呼语', exact: true }).click()
   const promptDialog = host.getByRole('dialog', { name: 'AI招呼语', exact: true })
@@ -783,7 +893,10 @@ try {
     (value) => value?.total === 8,
   )
   assert.equal(today.total, 8)
-  assert.match(await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(), /8\s*份/)
+  assert.match(
+    await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(),
+    /8\s*份/,
+  )
   assert.equal(await page.evaluate(() => window.__bossFixture.detailSelections), 0)
 
   const statusColors = await host.locator('.card-status').evaluate((element) => {
@@ -839,15 +952,29 @@ try {
   )
   for (let index = 0; index < 10; index += 1) {
     await page.evaluate(() => window.__bossFixture.navigate())
-    await page.waitForFunction((expectedIntervals) => {
-      const resources = window.__bossFixture.resources()
-      return (
-        resources.hosts === 1 &&
-        resources.aiReplyListeners === 1 &&
-        resources.hookedDataKeys === 4 &&
-        resources.intervals === expectedIntervals
+    try {
+      await page.waitForFunction(
+        (expectedIntervals) => {
+          const resources = window.__bossFixture.resources()
+          return (
+            resources.hosts === 1 &&
+            resources.aiReplyListeners === 1 &&
+            resources.hookedDataKeys === 4 &&
+            resources.intervals === expectedIntervals
+          )
+        },
+        resourcesBefore.intervals,
+        { timeout: 5_000 },
       )
-    }, resourcesBefore.intervals)
+    } catch (error) {
+      const resources = await page.evaluate(() => window.__bossFixture.resources())
+      throw new Error(
+        `SPA remount did not settle: ${JSON.stringify({ resources, browserErrors })}`,
+        {
+          cause: error,
+        },
+      )
+    }
   }
   const resourcesAfter = await page.evaluate(() => window.__bossFixture.resources())
   assert.equal(resourcesAfter.hosts, 1)
@@ -873,6 +1000,262 @@ try {
     .evaluate((element) => getComputedStyle(element).transitionDuration)
   assert.match(transitionDuration, /^(0s|0\.00001s)(, (0s|0\.00001s))*$/)
 
+  await page.close()
+
+  const lifecycleStorage = (deliveryStarts) => ({
+    'conf-model': [],
+    'boss-helper-onboarding-complete': true,
+    FormDataPrese: 'default',
+    FormDataPreses: [{ label: '默认配置', value: 'default' }],
+    'web-geek-job-FormData': {
+      ...commonConfig,
+      deliveryLimit: { value: 1 },
+      delay: {
+        deliveryStarts,
+        deliveryInterval: 0,
+        deliveryPageNext: 0,
+        messageSending: 0,
+      },
+    },
+    'web-geek-job-Today': {
+      date: localDateKey(),
+      success: 0,
+      total: 0,
+      repeat: 0,
+      activityFilter: 0,
+      tasks: {},
+    },
+    'web-geek-job-Statistics': [],
+  })
+
+  const assertLifecycleStatistics = async (label) => {
+    const statistics = await waitForStorage(
+      worker,
+      'local',
+      'web-geek-job-Today',
+      (value) => value?.total === 1 && value?.success === 1,
+      10_000,
+    )
+    assert.equal(statistics.total, 1, `${label} must count the job once`)
+    assert.equal(statistics.success, 1, `${label} must count the submission once`)
+  }
+
+  lifecycleSubmissionRequests = 0
+  await resetStorage(worker, lifecycleStorage(3))
+  const throttledPage = await context.newPage()
+  await throttledPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
+  const throttledHost = await waitForBossUi(throttledPage)
+  await throttledHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
+  await throttledHost.getByRole('button', { name: '开始', exact: true }).click()
+  let runningCheckpoint
+  try {
+    runningCheckpoint = await waitForStorage(
+      worker,
+      'local',
+      'boss-helper-workflow-run',
+      (value) => value?.intent === 'running' && value?.ownerId,
+    )
+  } catch (error) {
+    const [localStorage, hostText, resources] = await Promise.all([
+      extensionStorage(worker, 'local', 'get', null),
+      throttledHost.innerText(),
+      throttledPage.evaluate(() => window.__bossFixture.resources()),
+    ])
+    throw new Error(
+      `Lifecycle workflow did not start: ${JSON.stringify({ localStorage, hostText, resources, browserErrors })}`,
+      { cause: error },
+    )
+  }
+  const throttledSession = await context.newCDPSession(throttledPage)
+  await throttledSession.send('Page.setWebLifecycleState', { state: 'frozen' })
+  await extensionStorage(worker, 'local', 'set', {
+    'boss-helper-workflow-run': {
+      ...runningCheckpoint,
+      heartbeatAt: Date.now() - 10 * 60 * 1000,
+      progressAt: Date.now() - 10 * 60 * 1000,
+    },
+  })
+  await optionsPage.bringToFront()
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  await throttledSession.send('Page.setWebLifecycleState', { state: 'active' })
+  await throttledPage.bringToFront()
+  await waitForCondition(
+    () => lifecycleSubmissionRequests === 1,
+    'one submission after background-tab recovery',
+    15_000,
+  )
+  const recoveredCheckpoint = await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.submittedJobKeys?.includes('boss::fixture-job'),
+    10_000,
+  )
+  assert.equal(recoveredCheckpoint.batchSubmitted, 1)
+  assert.equal(lifecycleSubmissionRequests, 1, 'background recovery must not duplicate submission')
+  await assertLifecycleStatistics('background recovery')
+  await throttledPage.close()
+
+  lifecycleSubmissionRequests = 0
+  await resetStorage(worker, lifecycleStorage(3))
+  const bfcachePage = await context.newPage()
+  await bfcachePage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
+  const bfcacheHost = await waitForBossUi(bfcachePage)
+  await bfcacheHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
+  await bfcacheHost.getByRole('button', { name: '开始', exact: true }).click()
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.intent === 'running' && value?.ownerId,
+  )
+  await bfcachePage.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
+  })
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) =>
+      value?.intent === 'running' &&
+      value?.ownerId === null &&
+      value?.lastTransition === 'pagehide_bfcache',
+  )
+  await bfcachePage.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+  })
+  await waitForCondition(
+    () => lifecycleSubmissionRequests === 1,
+    'one submission after back-forward cache recovery',
+    15_000,
+  )
+  const bfcacheCheckpoint = await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.submittedJobKeys?.includes('boss::fixture-job'),
+    10_000,
+  )
+  assert.equal(bfcacheCheckpoint.batchSubmitted, 1)
+  assert.equal(lifecycleSubmissionRequests, 1, 'BFCache recovery must not duplicate submission')
+  await assertLifecycleStatistics('BFCache recovery')
+  await bfcachePage.close()
+
+  lifecycleSubmissionRequests = 0
+  await resetStorage(worker, lifecycleStorage(3))
+  const workerRestartPage = await context.newPage()
+  await workerRestartPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
+  const workerRestartHost = await waitForBossUi(workerRestartPage)
+  await workerRestartHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
+  await workerRestartHost.getByRole('button', { name: '开始', exact: true }).click()
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.intent === 'running' && value?.ownerId,
+  )
+  await restartServiceWorker(context, workerRestartPage, worker.url(), () =>
+    workerRestartPage.evaluate(() => window.dispatchEvent(new Event('focus'))),
+  )
+  const workerRestartCheckpoint = await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.submittedJobKeys?.includes('boss::fixture-job'),
+    10_000,
+  )
+  assert.equal(workerRestartCheckpoint.batchSubmitted, 1)
+  assert.equal(lifecycleSubmissionRequests, 1, 'worker restart must not duplicate submission')
+  await assertLifecycleStatistics('worker restart')
+  await workerRestartPage.close()
+
+  lifecycleSubmissionRequests = 0
+  await resetStorage(worker, lifecycleStorage(5))
+  const pausedPage = await context.newPage()
+  await pausedPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
+  let pausedHost = await waitForBossUi(pausedPage)
+  await pausedHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
+  await pausedHost.getByRole('button', { name: '开始', exact: true }).click()
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.intent === 'running',
+  )
+  await pausedHost.getByRole('button', { name: '暂停', exact: true }).click()
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) => value?.intent === 'paused' && value?.ownerId === null,
+  )
+  await pausedPage.reload()
+  pausedHost = await waitForBossUi(pausedPage)
+  const pausedReason = pausedHost.locator('[data-testid="workflow-stop-reason"]')
+  await pausedReason.waitFor()
+  assert.match(await pausedReason.innerText(), /已手动暂停/)
+  await new Promise((resolve) => setTimeout(resolve, 5_500))
+  assert.equal(lifecycleSubmissionRequests, 0, 'manual pause must never auto-resume after reload')
+  await pausedPage.close()
+
+  lifecycleSubmissionRequests = 0
+  holdLifecycleSubmission = true
+  await resetStorage(worker, lifecycleStorage(0))
+  const restartPage = await context.newPage()
+  await restartPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
+  let restartHost = await waitForBossUi(restartPage)
+  await restartHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
+  await restartHost.getByRole('button', { name: '开始', exact: true }).click()
+  await waitForCondition(
+    () => lifecycleSubmissionRequests === 1,
+    'the first in-flight lifecycle submission',
+  )
+  await waitForStorage(
+    worker,
+    'local',
+    'boss-helper-workflow-run',
+    (value) =>
+      value?.submissionIntentJobKeys?.includes('boss::fixture-job') &&
+      !value?.submittedJobKeys?.includes('boss::fixture-job'),
+  )
+  const reloaded = restartPage.waitForNavigation({ waitUntil: 'domcontentloaded' })
+  await restartPage.evaluate(() => location.reload())
+  await reloaded
+  holdLifecycleSubmission = false
+  releaseLifecycleSubmission?.()
+  releaseLifecycleSubmission = undefined
+  restartHost = await waitForBossUi(restartPage)
+  try {
+    await waitForStorage(
+      worker,
+      'local',
+      'boss-helper-workflow-run',
+      (value) => value?.submittedJobKeys?.includes('boss::fixture-job'),
+      10_000,
+    )
+  } catch (error) {
+    const [localStorage, fixture, recoveryText] = await Promise.all([
+      extensionStorage(worker, 'local', 'get', null),
+      restartPage.evaluate(() => ({
+        contact: window.__bossFixture.job.contact,
+        resources: window.__bossFixture.resources(),
+      })),
+      restartHost.locator('[data-testid="workflow-recovery-status"]').allInnerTexts(),
+    ])
+    throw new Error(
+      `Lifecycle restart did not reconcile: ${JSON.stringify({ localStorage, fixture, recoveryText, lifecycleSubmissionRequests, browserErrors })}`,
+      { cause: error },
+    )
+  }
+  assert.equal(
+    lifecycleSubmissionRequests,
+    1,
+    'lifecycle restart must reconcile in-flight work once',
+  )
+  await assertLifecycleStatistics('lifecycle restart')
+  await restartHost.locator('[data-testid="workflow-stop-reason"]').waitFor()
+  await restartPage.close()
+
   assert.equal(
     expectedFailureConsoleErrors.length,
     1,
@@ -880,9 +1263,10 @@ try {
   )
   assert.deepEqual(browserErrors, [])
   console.log(
-    `Chrome UI verification passed (extension ${extensionId}, ${responsiveCases.length} responsive/zoom-equivalent widths, 10 SPA remounts, 0 browser errors)`,
+    `Chrome UI verification passed (extension ${extensionId}, ${responsiveCases.length} responsive/zoom-equivalent widths, 10 SPA remounts, background recovery, BFCache recovery, worker restart, lifecycle restart, manual pause, 0 browser errors)`,
   )
 } finally {
+  releaseLifecycleSubmission?.()
   await context?.close()
   await rm(profilePath, { recursive: true, force: true })
 }
