@@ -21,6 +21,12 @@ assert.doesNotMatch(source, /world:\s*['"]MAIN['"]/)
 const mainWorldSource = read('src/entrypoints/chat-socket-main-world.ts')
 assert.match(mainWorldSource, /defineUnlistedScript/)
 assert.match(mainWorldSource, /hookChatSocket\(\)/)
+// BH-CHAT-03: identity-not-ready messages must be retried/buffered, not permanently dropped.
+assert.match(mainWorldSource, /waitForBossUser/)
+assert.match(mainWorldSource, /BoundedBuffer/)
+// BH-CHAT-04: socket decode failures must be classified/counted, never a silent catch-and-ignore.
+assert.match(mainWorldSource, /RateLimitedLogGate/)
+assert.doesNotMatch(mainWorldSource, /emitAiReplyMessages\(event\.data\)\.catch\(\(\) => \{\}\)/)
 
 const manifestConfig = read('wxt.config.ts')
 assert.match(manifestConfig, /chat-socket-main-world\.js/)

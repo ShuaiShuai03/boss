@@ -37,7 +37,10 @@ const testShow = ref(false)
 
 const llmFormData = reactive(
   normalizeOpenaiConfig(
-    jsonClone(props.model?.data ?? ({ mode: 'openai', advanced: {}, other: {} } as OpenaiLLMConf)),
+    jsonClone(
+      props.model?.data ??
+        ({ mode: 'openai', advanced: { json: true }, other: {} } as OpenaiLLMConf),
+    ),
   ),
 )
 

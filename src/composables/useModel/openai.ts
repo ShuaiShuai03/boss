@@ -12,6 +12,7 @@ import { sanitizeSensitiveText } from '@/utils/sensitive'
 import { desc, getEffectiveAiTimeoutMs, other } from './common'
 import {
   getModelEndpointCandidates,
+  mergeAdvancedRequestBody,
   normalizeOpenaiConfig,
   normalizeOpenaiBaseUrl,
   parseOpenaiModelIds,
@@ -284,11 +285,13 @@ async function backgroundFetch(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   timeout: number,
+  advanced?: OpenaiLLMConf['advanced'],
 ) {
   await assertBackgroundBridgeReady()
   const request = new Request(input, init)
-  const body = await request.text()
   const canHaveBody = !['GET', 'HEAD'].includes(request.method.toUpperCase())
+  const rawBody = canHaveBody ? await request.text() : undefined
+  const body = advanced ? mergeAdvancedRequestBody(rawBody, advanced) : rawBody
   const res = await counter
     .rawRequest({
       url: request.url,
@@ -296,7 +299,7 @@ async function backgroundFetch(
       data: {
         method: request.method,
         headers: normalizeHeaders(request.headers),
-        body: canHaveBody ? body : undefined,
+        body,
       },
     })
     .catch((error) => {
@@ -316,7 +319,7 @@ const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf: OpenaiLLMCo
     baseURL: normalizeOpenaiBaseUrl(normalizedConf.base_url),
     apiKey: normalizedConf.api_key,
     headers: normalizedConf.advanced.extra_headers,
-    fetch: (input, init) => backgroundFetch(input, init, timeout),
+    fetch: (input, init) => backgroundFetch(input, init, timeout, normalizedConf.advanced),
   })
   if (normalizedConf.responses) {
     return openai.responses(normalizedConf.model)

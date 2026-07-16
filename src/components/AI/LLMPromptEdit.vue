@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
-import { parseFiltering } from '@/composables/useApplying/utils'
+import { filteringOutputSchema, parseFiltering } from '@/composables/useApplying/utils'
 import { JobData, useHelper } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
 import { generateOptimizedSystemPrompt } from '@/composables/useModel/promptOptimizer'
@@ -267,7 +267,12 @@ async function testJob() {
       model: currentModel.value,
       prompt: jsonClone(message.value),
     }
-    if (!helper.chatModel.createAgent(form, agentName, { json: props.data === 'aiFiltering' })) {
+    if (
+      !helper.chatModel.createAgent(form, agentName, {
+        json: props.data === 'aiFiltering',
+        schema: props.data === 'aiFiltering' ? filteringOutputSchema : undefined,
+      })
+    ) {
       toast.add({
         title: helper.chatModel.lastCreateAgentError || '模型配置不可用',
         color: 'warning',
@@ -288,7 +293,8 @@ async function testJob() {
         const result = await helper.chatModel.chat(agentName, data)
         let content = result.text.trim()
         if (props.data === 'aiFiltering' && content) {
-          content = parseFiltering(content).message || content
+          content =
+            parseFiltering(content, { finishReason: result.finishReason }).message || content
         }
         testDataContent[item.key].push({
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,

@@ -13,6 +13,8 @@ import {
   type WorkflowRunClaim,
 } from '@/composables/useApplying/runState'
 
+import { readBoundedResponseText } from './boundedResponse'
+
 export const userKey = 'local:conf-user'
 
 type BackgroundResponseType = 'text' | 'json' | 'arraybuffer' | 'blob' | 'document' | 'stream'
@@ -43,6 +45,12 @@ function mutateWorkflowRun<T>(mutation: () => Promise<T>) {
   )
   return result
 }
+
+// A malicious or misbehaving endpoint returning an unbounded body would otherwise be fully
+// buffered here as text and then re-buffered again when useModel/openai.ts reconstructs a
+// Response from it, risking a memory spike, added latency, or the MV3 worker being restarted
+// (BH-NET-01). 25MB comfortably covers any realistic model completion/listing payload.
+const MAX_RAW_RESPONSE_BYTES = 25 * 1024 * 1024
 
 function normalizeHttpRequestUrl(url: string) {
   const parsedUrl = new URL(url)
@@ -184,7 +192,7 @@ export class BackgroundCounter {
     return {
       status: res.status,
       headers: Object.fromEntries(res.headers.entries()),
-      body: await res.text(),
+      body: await readBoundedResponseText(res, MAX_RAW_RESPONSE_BYTES),
     }
   }
 

@@ -1,7 +1,8 @@
 import { defineUnlistedScript } from '#imports'
 import { decodeAiReplySocketPayload } from '@/features/aiReply/realtime'
+import { BoundedBuffer, RateLimitedLogGate } from '@/features/aiReply/socketCapture'
 import { AI_REPLY_DOM_MESSAGE_EVENT, type AiReplyChatEventPayload } from '@/features/aiReply/types'
-import { resolveBossUser } from '@/utils/bossIdentity'
+import { resolveBossUser, waitForBossUser } from '@/utils/bossIdentity'
 
 function shouldCaptureChatSocket(url: string | URL | undefined) {
   return url != null && url.toString().includes('chatws')
@@ -64,13 +65,36 @@ function currentUser() {
   }
 }
 
-async function emitAiReplyMessages(data: unknown) {
-  const bytes = await socketDataToBytes(data)
-  if (!bytes) {
+// `window._PAGE` can populate slightly after the socket hook starts receiving messages. A single
+// synchronous read at that moment would permanently misclassify the current user as unknown for
+// those early frames (normalizeAiReplyProtocolMessages drops everything without a currentUserId),
+// so early messages are buffered here and replayed once identity resolves (BH-CHAT-03).
+const pendingBytes = new BoundedBuffer<Uint8Array>(20)
+const decodeErrorLogGate = new RateLimitedLogGate(5000)
+let decodeErrorCount = 0
+let identityUnavailableWarned = false
+
+// Protobuf/MQTT decode failures, an unrelated frame sharing the "chatws" URL substring, or a
+// failed Blob read must not be indistinguishable from "no new messages" (BH-CHAT-04). No message
+// content is ever logged, only a rate-limited failure count.
+function reportCaptureFailure(error: unknown) {
+  decodeErrorCount++
+  if (decodeErrorLogGate.shouldLog(Date.now())) {
+    console.warn(
+      `[boss-helper] chat socket capture failed x${decodeErrorCount}`,
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+function decodeAndEmit(bytes: Uint8Array, user: ReturnType<typeof currentUser>) {
+  let messages: ReturnType<typeof decodeAiReplySocketPayload>
+  try {
+    messages = decodeAiReplySocketPayload(bytes, { currentUserId: user.uid })
+  } catch (error) {
+    reportCaptureFailure(error)
     return
   }
-  const user = currentUser()
-  const messages = decodeAiReplySocketPayload(bytes, { currentUserId: user.uid })
   if (messages.length === 0) {
     return
   }
@@ -85,6 +109,41 @@ async function emitAiReplyMessages(data: unknown) {
       detail: cloneForDom(payload),
     }),
   )
+}
+
+async function emitAiReplyMessages(data: unknown) {
+  const bytes = await socketDataToBytes(data)
+  if (!bytes) {
+    return
+  }
+
+  let user = currentUser()
+  if (!user.uid) {
+    const resolved = await waitForBossUser(() => [window._PAGE], {
+      timeoutMs: 5000,
+      requireProtocolUserId: true,
+    })
+    user = {
+      uid: resolved.protocolUserId ?? '',
+      name: resolved.name,
+      avatar: resolved.avatar,
+    }
+  }
+
+  if (!user.uid) {
+    pendingBytes.push(bytes)
+    if (!identityUnavailableWarned) {
+      identityUnavailableWarned = true
+      console.warn('[boss-helper] chat socket: current user identity not ready, buffering message')
+    }
+    return
+  }
+
+  identityUnavailableWarned = false
+  for (const buffered of pendingBytes.drain()) {
+    decodeAndEmit(buffered, user)
+  }
+  decodeAndEmit(bytes, user)
 }
 
 function hookChatSocket() {
@@ -105,7 +164,7 @@ function hookChatSocket() {
 
       setSharedChatSocket(socket)
       socket.addEventListener('message', (event) => {
-        void emitAiReplyMessages(event.data).catch(() => {})
+        void emitAiReplyMessages(event.data).catch(reportCaptureFailure)
       })
       socket.addEventListener('open', () => {
         setSharedChatSocket(socket)

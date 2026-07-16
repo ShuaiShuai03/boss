@@ -67,5 +67,9 @@ assert.match(openaiUtils, /Base URL 仅支持 https:\/\/，http:\/\/ 仅允许�
 const background = read('src/message/background.ts')
 assert.match(background, /normalizeHttpRequestUrl/)
 assert.match(background, /仅支持 HTTPS 请求，HTTP 仅允许本机地址/)
+// BH-NET-01: rawRequest must bound how much of a response it buffers instead of an unconditional
+// `res.text()`.
+assert.match(background, /readBoundedResponseText/)
+assert.doesNotMatch(background, /body:\s*await res\.text\(\)/)
 
 console.log('bridge hardening verification passed')

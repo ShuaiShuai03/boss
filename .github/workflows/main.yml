@@ -1,8 +1,11 @@
 name: Main
 on:
-  # push:
-  #   tags:
-  #     - '*'
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
   workflow_dispatch:
   # schedule:
   #  - cron: "30 0 * * *"
@@ -75,6 +78,10 @@ jobs:
 
   release:
     needs: build
+    # Quality-gate checks (the `build` job) now run automatically on every push/PR, but
+    # publishing must stay opt-in: only a tag push or an explicit manual dispatch should create a
+    # GitHub release/prerelease, never an ordinary push to main or a PR (BH-CI-01).
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write

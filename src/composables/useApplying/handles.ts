@@ -12,6 +12,7 @@ import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import { defineTaskHandler, JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
 import {
   evaluateKeywordFilter,
+  filteringOutputSchema,
   jobContentKeywordMatcher,
   parseFiltering,
   rangeMatch,
@@ -406,6 +407,7 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       if (
         !ctx.helper.chatModel.createAgent(ctx.helper.conf.formData.aiFiltering, 'filtering', {
           json: true,
+          schema: filteringOutputSchema,
         })
       ) {
         throw new HelperConfigError(
@@ -422,9 +424,11 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         if (!content) {
           return taskResult.skip('AI筛选低置信度跳过: 模型无返回')
         }
-        const { message, rating, res } = parseFiltering(content)
+        const { message, rating, res } = parseFiltering(content, {
+          finishReason: result.finishReason,
+        })
         if (!res) {
-          return taskResult.skip('AI筛选低置信度跳过: 无法解析模型输出')
+          return taskResult.skip(`AI筛选低置信度跳过: ${message}`)
         }
         if (rating < (ctx.helper.conf.formData.aiFiltering.score ?? 10)) {
           return taskResult.skip(message)
@@ -442,22 +446,24 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       return
     }
     return async (_, { jobData }) => {
+      // 统计面板的“活跃比例”读取 todayData.activityFilter，此处是唯一的计数来源
+      const inactiveSkip = (reason: string) => {
+        ctx.helper.statistics.todayData.activityFilter += 1
+        return taskResult.skip(reason)
+      }
       const activeText = jobData.activeTimeStr
       const activeTime = jobData.activeTime
       // TODO: 暂时先用文本匹配吧, activeTime 备用(没确认是否准确)
       if (!activeText && !activeTime) {
-        return taskResult.skip(`无活跃内容,如果全失败请反馈`)
+        return inactiveSkip(`无活跃内容,如果全失败请反馈`)
       } else if (!activeText && activeTime) {
         if (ctx.now.getTime() - activeTime >= 7 * 24 * 60 * 60 * 1000) {
-          return {
-            isSkip: true,
-            reason: `不活跃 [${new Date(activeTime).toLocaleString()}]`,
-          }
+          return inactiveSkip(`不活跃 [${new Date(activeTime).toLocaleString()}]`)
         }
       } else if (!activeText) {
-        return taskResult.skip(`无活跃信息,如果全失败请反馈`)
+        return inactiveSkip(`无活跃信息,如果全失败请反馈`)
       } else if (activeText.includes('月') || activeText.includes('年'))
-        return taskResult.skip(`不活跃, [${activeText}]`)
+        return inactiveSkip(`不活跃, [${activeText}]`)
     }
   })
 

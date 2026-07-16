@@ -184,7 +184,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   initNetConf() {
     void initNetConf()
       .then((data) => {
-        this.netConf.value = data
+        this.netConf.value = data ?? null
       })
       .catch((e) => {
         logger.warn('网络配置初始化失败', e)
@@ -194,7 +194,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
         () => {
           void initNetConf()
             .then((data) => {
-              this.netConf.value = data
+              this.netConf.value = data ?? null
             })
             .catch((e) => {
               logger.warn('网络配置刷新失败', e)

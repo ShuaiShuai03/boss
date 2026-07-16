@@ -156,6 +156,42 @@ function normalizeArrayField(
   throw new Error(`${field} 必须是 JSON 数组`)
 }
 
+export interface AdvancedRequestBodyOverrides {
+  tools?: Array<Record<string, any>>
+  tool_choice?: string
+  extra_body?: object
+}
+
+// The advanced config UI lets users set `extra_body`/`tools`/`tool_choice`, but the AI SDK's
+// request builder has no generic passthrough for them, so they were silently ignored on the wire
+// (BH-AI-03). Applied to the already-serialized JSON request body regardless of which endpoint
+// (chat/completions or responses) built it, so this doesn't depend on SDK-specific option shapes.
+export function mergeAdvancedRequestBody(
+  body: string | undefined,
+  advanced: AdvancedRequestBodyOverrides,
+): string | undefined {
+  const hasOverrides =
+    Boolean(advanced.extra_body) || Boolean(advanced.tool_choice) || Boolean(advanced.tools?.length)
+  if (!body || !hasOverrides) return body
+
+  let parsed: Record<string, any>
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  if (advanced.tools?.length) {
+    parsed.tools = [...(Array.isArray(parsed.tools) ? parsed.tools : []), ...advanced.tools]
+  }
+  if (advanced.tool_choice) {
+    parsed.tool_choice = advanced.tool_choice
+  }
+  if (advanced.extra_body) {
+    Object.assign(parsed, advanced.extra_body)
+  }
+  return JSON.stringify(parsed)
+}
+
 export function normalizeOpenaiConfig<T extends Record<string, any>>(conf: T): T {
   const advanced = {
     ...(conf.advanced ?? {}),

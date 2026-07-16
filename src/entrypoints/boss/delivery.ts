@@ -103,6 +103,8 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
               msg: '投递状态已恢复',
             }
           }
+          // 统计面板的“重复比例”读取 todayData.repeat，此处是唯一的计数来源
+          taskContext.helper.statistics.todayData.repeat += 1
           return taskResult.skip('已沟通')
         }
       }

@@ -2,6 +2,8 @@
 
 import { ref } from 'vue'
 
+import { truncateForStorage } from './logTruncate'
+
 const icons = { debug: '🐞', info: 'ℹ️', warn: '⚠', error: '❌️' }
 const Color = {
   debug: '#42CA8C;',
@@ -65,6 +67,12 @@ interface LogEntry {
 
 const MAX_LOGS = 500
 
+// The debug log is a generic interceptor for every `logger.*` call across the app, including ones
+// that pass full AI prompts/responses or chat context (e.g. `logger.debug('Chat finished',
+// result)`). Bounding what's retained here keeps it useful for troubleshooting without letting up
+// to 500 entries silently accumulate large chunks of job-seeker/HR content that could be exposed
+// via screen sharing, devtools, or an unrelated bug (BH-PRIV-01). Only the stored copy is
+// truncated; the live console output passed to `originalMethod` below is untouched.
 export const logTree = ref<LogEntry[]>([])
 
 let currentGroupStack: LogEntry[] = []
@@ -88,7 +96,7 @@ function createLogMethod(level: keyof typeof Color, originalMethod: Function) {
       id: Math.random().toString(36).slice(2),
       level,
       time: new Date().toLocaleTimeString(),
-      content: args,
+      content: args.map((arg) => truncateForStorage(arg)),
       stack: new Error().stack?.split('\n').slice(3).join('\n'),
     })
     return originalMethod.apply(newConsole, [prefix, style, ...args])
