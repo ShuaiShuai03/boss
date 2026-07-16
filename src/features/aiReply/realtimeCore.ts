@@ -81,7 +81,8 @@ export function normalizeAiReplyProtocolMessages(
   protocol: AiReplyProtocol,
   context: AiReplyNormalizeContext = {},
 ): AiReplyRealtimeMessage[] {
-  const currentUserId = context.currentUserId
+  const currentUserId = valueToString(context.currentUserId).trim()
+  if (!currentUserId) return []
   const result: AiReplyRealtimeMessage[] = []
 
   for (const message of protocol.messages ?? []) {
@@ -96,7 +97,15 @@ export function normalizeAiReplyProtocolMessages(
     if (!peerUid) continue
 
     const rawId = valueToString(message.mid ?? message.cmid ?? `${peerUid}:${message.time}:${text}`)
-    const conversationId = `boss-chat::${peerUid}::${peer.source ?? 0}`
+    // A single HR/peer can have concurrent threads about different jobs. When the protocol
+    // attaches an authoritative business/security ID to the message, fold it into the
+    // conversation key so distinct jobs never collapse into the same conversation just because
+    // they share a peer UID (see BH-CHAT-01). Messages without such an ID (most follow-up chat
+    // turns) keep the previous peer-scoped key for backward compatibility.
+    const jobIdentity = valueToString(message.bizId ?? message.securityId)
+    const conversationId = jobIdentity
+      ? `boss-chat::${peerUid}::${peer.source ?? 0}::${jobIdentity}`
+      : `boss-chat::${peerUid}::${peer.source ?? 0}`
     const jobDesc = message.body?.jobDesc
 
     result.push({

@@ -10,18 +10,22 @@ export async function getRootVue(): Promise<any> {
 
   const waitVueMount = async () => {
     return new Promise((resolve, reject) => {
+      let timeout: ReturnType<typeof setTimeout>
       const interval = setInterval(() => {
         const wrap = document.querySelector('#wrap')
         if (rootVue.value !== undefined) {
+          clearInterval(interval)
+          clearTimeout(timeout)
           return resolve(rootVue.value)
         }
         if (wrap && '__vue__' in wrap) {
           rootVue.value = wrap.__vue__
           resolve(rootVue.value)
           clearInterval(interval)
+          clearTimeout(timeout)
         }
       }, 300)
-      setTimeout(() => {
+      timeout = setTimeout(() => {
         reject(new Error('未找到vue根组件'))
         clearInterval(interval)
       }, 20000)
@@ -38,49 +42,117 @@ export function useHookVueData<T = any>(
   data: Ref<T>,
   update?: (val: T) => void,
 ) {
-  return async () => {
+  return async (signal?: AbortSignal) => {
     const jobVue = await new Promise<any>((resolve, reject) => {
-      const interval = setInterval(() => {
+      let timeout: ReturnType<typeof setTimeout>
+      let interval: ReturnType<typeof setInterval>
+      const cleanup = () => {
+        clearInterval(interval)
+        clearTimeout(timeout)
+        signal?.removeEventListener('abort', onAbort)
+      }
+      const onAbort = () => {
+        cleanup()
+        const error = new Error('页面资源已释放')
+        error.name = 'AbortError'
+        reject(error)
+      }
+      if (signal?.aborted) return onAbort()
+      signal?.addEventListener('abort', onAbort, { once: true })
+      interval = setInterval(() => {
         const jobVue = document.querySelector<any>(selectors)?.__vue__
         if (jobVue) {
           resolve(jobVue)
-          clearInterval(interval)
+          cleanup()
         }
       }, 100)
-      setTimeout(() => {
+      timeout = setTimeout(() => {
         reject(new Error('未找到对应元素'))
-        clearInterval(interval)
+        cleanup()
       }, 20000)
     })
 
     data.value = jobVue[key]
     update?.(toValue(jobVue[key] as T))
     // eslint-disable-next-line no-restricted-properties
-    const originalSet = jobVue.__lookupSetter__(key)
-    // eslint-disable-next-line accessor-pairs
+    const originalOwnDescriptor = Object.getOwnPropertyDescriptor(jobVue, key)
+    let descriptor = originalOwnDescriptor
+    let prototype = Object.getPrototypeOf(jobVue)
+    while (!descriptor && prototype) {
+      descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    let currentValue = jobVue[key]
+    let wasSet = false
     Object.defineProperty(jobVue, key, {
+      configurable: true,
+      enumerable: descriptor?.enumerable ?? true,
+      get() {
+        return descriptor?.get ? descriptor.get.call(this) : currentValue
+      },
       set(val: T) {
+        wasSet = true
         data.value = val
         update?.(val)
-        originalSet.call(this, val)
+        if (descriptor?.set) {
+          descriptor.set.call(this, val)
+        } else {
+          currentValue = val
+        }
       },
     })
+
+    return () => {
+      if (originalOwnDescriptor) {
+        Object.defineProperty(
+          jobVue,
+          key,
+          'value' in originalOwnDescriptor
+            ? { ...originalOwnDescriptor, value: currentValue }
+            : originalOwnDescriptor,
+        )
+      } else if (wasSet && (!descriptor || 'value' in descriptor)) {
+        Object.defineProperty(jobVue, key, {
+          configurable: true,
+          enumerable: descriptor?.enumerable ?? true,
+          writable: descriptor && 'writable' in descriptor ? descriptor.writable : true,
+          value: currentValue,
+        })
+      } else {
+        delete jobVue[key]
+      }
+    }
   }
 }
 
 export function useHookVueFn(selectors: string, key: string | string[]) {
-  return async () => {
+  return async (signal?: AbortSignal) => {
     const jobVue = await new Promise<any>((resolve, reject) => {
-      const interval = setInterval(() => {
+      let timeout: ReturnType<typeof setTimeout>
+      let interval: ReturnType<typeof setInterval>
+      const cleanup = () => {
+        clearInterval(interval)
+        clearTimeout(timeout)
+        signal?.removeEventListener('abort', onAbort)
+      }
+      const onAbort = () => {
+        cleanup()
+        const error = new Error('页面资源已释放')
+        error.name = 'AbortError'
+        reject(error)
+      }
+      if (signal?.aborted) return onAbort()
+      signal?.addEventListener('abort', onAbort, { once: true })
+      interval = setInterval(() => {
         const jobVue = document.querySelector<any>(selectors)?.__vue__
         if (jobVue) {
           resolve(jobVue)
-          clearInterval(interval)
+          cleanup()
         }
       }, 100)
-      setTimeout(() => {
+      timeout = setTimeout(() => {
         reject(new Error('未找到对应元素'))
-        clearInterval(interval)
+        cleanup()
       }, 20000)
     })
     if (Array.isArray(key)) {

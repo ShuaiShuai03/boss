@@ -5,6 +5,7 @@ import UInputNumber from '@nuxt/ui/components/InputNumber.vue'
 import USelectMenu from '@nuxt/ui/components/SelectMenu.vue'
 import USlider from '@nuxt/ui/components/Slider.vue'
 import USwitch from '@nuxt/ui/components/Switch.vue'
+import { useId } from 'vue'
 
 import type { LLMInfoValM, LLMInfoValF } from '@/composables/useModel/type'
 
@@ -20,6 +21,10 @@ const fromVal = defineModel<any>({
 
 const LLMFormRef = inject<Ref<HTMLDivElement>>('LLMFormRef')
 const isSetVal = ref(fromVal.value !== undefined)
+const fieldId = useId()
+const controlId = `${fieldId}-value`
+const descriptionId = `${fieldId}-description`
+const fieldLabel = computed(() => props.info.label ?? props.label)
 </script>
 
 <template>
@@ -43,36 +48,48 @@ const isSetVal = ref(fromVal.value !== undefined)
     </div>
   </template>
 
-  <UFormField
+  <fieldset
     v-else
-    :required="info.required"
-    class="form-field-container"
-    :ui="{ container: 'flex flex-row gap-2 flex-1 *:w-full max-w-3/5' }"
+    class="form-field-container min-w-0 rounded-md border border-default p-3"
+    :aria-describedby="info.desc ? descriptionId : undefined"
   >
-    <template #label>
+    <legend class="px-1 text-sm font-medium text-default">
       <span :title="info.desc" class="inline-flex items-center text-center gap-2">
         <UIcon v-if="info.desc" name="i-lucide-info" />
-        {{ info.label ?? label }}</span
-      >
-    </template>
-    <UCheckbox
-      v-if="info.config?.disabled || !info.required"
-      v-model="isSetVal"
-      @update:model-value="
-        (x) => {
-          if (!x) fromVal = undefined
-        }
-      "
-      :disable="info.config?.disabled"
-    />
-    <template v-if="info.required || isSetVal">
+        {{ fieldLabel }}
+        <span v-if="info.required" aria-hidden="true" class="text-error">*</span>
+      </span>
+    </legend>
+    <div class="flex min-w-0 flex-wrap items-center gap-2">
+      <UCheckbox
+        v-if="info.config?.disabled || !info.required"
+        :id="`${fieldId}-enabled`"
+        :name="`${fieldId}-enabled`"
+        v-model="isSetVal"
+        :aria-label="`启用${fieldLabel}`"
+        @update:model-value="
+          (x) => {
+            if (!x) fromVal = undefined
+          }
+        "
+        :disabled="info.config?.disabled"
+      />
+      <template v-if="info.required || isSetVal">
       <UInputNumber
         v-if="info.type === 'input' && info.format === 'number'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
         v-model="fromVal"
         v-bind="info.config"
       ></UInputNumber>
       <UInputMenu
         v-else-if="info.type === 'input' && info.format === 'menu'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
         v-model="fromVal"
         v-bind="info.config"
         :portal="LLMFormRef"
@@ -84,9 +101,21 @@ const isSetVal = ref(fromVal.value !== undefined)
         "
       >
       </UInputMenu>
-      <UInput v-else-if="info.type === 'input'" v-model="fromVal" v-bind="info.config"></UInput>
+      <UInput
+        v-else-if="info.type === 'input'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
+        v-model="fromVal"
+        v-bind="info.config"
+      ></UInput>
       <USelectMenu
         v-else-if="info.type === 'select'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
         v-model="fromVal"
         v-bind="info.config"
         :clear="false"
@@ -94,14 +123,30 @@ const isSetVal = ref(fromVal.value !== undefined)
       ></USelectMenu>
       <USlider
         v-else-if="info.type === 'slider'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
         v-model="fromVal"
         v-bind="info.config"
         :ui="{ root: 'w-1/2 min-w-50' }"
       ></USlider>
-      <USwitch v-else-if="info.type === 'switch'" v-model="fromVal" v-bind="info.config"></USwitch>
+      <USwitch
+        v-else-if="info.type === 'switch'"
+        :id="controlId"
+        :name="controlId"
+        :aria-label="fieldLabel"
+        :aria-describedby="info.desc ? descriptionId : undefined"
+        v-model="fromVal"
+        v-bind="info.config"
+      ></USwitch>
       <div v-else>Unsupported form element {{ info }}</div>
-    </template>
-  </UFormField>
+      </template>
+    </div>
+    <p v-if="info.desc" :id="descriptionId" class="mt-2 text-xs leading-relaxed text-muted">
+      {{ info.desc }}
+    </p>
+  </fieldset>
 </template>
 
 <style scoped>

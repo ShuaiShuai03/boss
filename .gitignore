@@ -33,6 +33,9 @@ logapi.zhipin.*.pem
 
 /.env*
 
+.agents/
+/简历.pdf
+
 .wxt
 
 /temp

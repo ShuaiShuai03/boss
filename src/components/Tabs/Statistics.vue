@@ -1,14 +1,16 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import Alert from '@/components/Alert.vue'
 import { useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
-import { useStatistics } from '@/composables/useStatistics'
 
 const ctx = useHelper()
+const emit = defineEmits<{
+  navigate: [tab: 'config' | 'logs']
+}>()
 
-const statistics = useStatistics()
+const statistics = ctx.statistics
 
 // const { next, page } = usePager()
 const conf = useConf()
@@ -59,15 +61,58 @@ const batchProgress = computed(() => {
   if (!batchLimit.value) return 0
   return Number(((batchSubmitted.value / batchLimit.value) * 100).toFixed(1))
 })
+const initializationLoading = computed(() => ctx.initializationStatus.value === 'loading')
+const initializationFailed = computed(() => ctx.initializationStatus.value === 'error')
+const stopReason = computed(() => ctx.workflow?.stopReason.value ?? null)
+const workflowRecovering = computed(() => ctx.workflow?.status.value === 'recovering')
+const startBlockedByStopReason = computed(() => stopReason.value?.code === 'context_invalidated')
+const startLabel = computed(() => {
+  if (workflowRecovering.value) return '恢复中'
+  if (startBlockedByStopReason.value) return '刷新后重试'
+  if (stopReason.value?.code === 'batch_limit') return '开始下一批'
+  if (ctx.workflow?.status.value === 'stop') return '继续'
+  return '开始'
+})
+
+async function retryInitialization() {
+  await ctx.ensureInitialized(true).catch(() => undefined)
+}
+
+function handleStopReasonAction() {
+  const reason = stopReason.value
+  if (!reason) return
+  if (reason.code === 'context_invalidated') {
+    location.reload()
+  } else if (reason.code === 'consecutive_failures' || reason.code === 'unexpected_error') {
+    emit('navigate', 'logs')
+  } else if (reason.code === 'no_jobs' || reason.code === 'no_more_jobs') {
+    ctx.reset()
+  } else {
+    void ctx.start()
+  }
+}
+
+const stopReasonActionLabel = computed(() => {
+  switch (stopReason.value?.code) {
+    case 'context_invalidated':
+      return '刷新页面'
+    case 'consecutive_failures':
+    case 'unexpected_error':
+      return '查看日志'
+    case 'no_jobs':
+    case 'no_more_jobs':
+      return '重新检查岗位'
+    case 'batch_limit':
+      return '开始下一批'
+    default:
+      return '继续'
+  }
+})
 
 function percent(value: number) {
   if (!statistics.todayData.total) return '0.0'
   return ((value / statistics.todayData.total) * 100).toFixed(1)
 }
-
-onMounted(() => {
-  statistics.updateStatistics()
-})
 </script>
 
 <template>
@@ -78,7 +123,60 @@ onMounted(() => {
       color="warning"
       show-icon
     />
-    <div v-if="conf.configLevel.intermediate" class="grid grid-cols-5 gap-4">
+    <UAlert
+      v-if="initializationLoading"
+      role="status"
+      aria-live="polite"
+      color="info"
+      variant="subtle"
+      title="正在加载配置"
+      description="配置、模型和统计数据就绪前不会开始投递。"
+    />
+    <div
+      v-else-if="initializationFailed"
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm"
+    >
+      <div>
+        <p class="font-medium text-error">配置加载失败，已阻止开始投递</p>
+        <p class="text-muted">
+          {{ ctx.initializationError.value || '请检查扩展状态后重试。' }}
+        </p>
+      </div>
+      <UButton color="error" variant="soft" @click="retryInitialization">重新加载</UButton>
+    </div>
+    <div
+      v-if="stopReason"
+      :role="stopReason.severity === 'error' ? 'alert' : 'status'"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-default bg-elevated px-4 py-3 text-sm"
+      data-testid="workflow-stop-reason"
+    >
+      <div>
+        <p class="font-medium text-default">{{ stopReason.title }}</p>
+        <p class="text-muted">{{ stopReason.message }}</p>
+      </div>
+      <UButton
+        :color="stopReason.severity === 'error' ? 'error' : 'primary'"
+        variant="soft"
+        @click="handleStopReasonAction"
+      >
+        {{ stopReasonActionLabel }}
+      </UButton>
+    </div>
+    <UAlert
+      v-if="ctx.workflow?.recoveryMessage.value"
+      role="status"
+      aria-live="polite"
+      color="info"
+      variant="subtle"
+      title="正在核验执行状态"
+      :description="ctx.workflow.recoveryMessage.value"
+      data-testid="workflow-recovery-status"
+    />
+    <div
+      v-if="conf.configLevel.intermediate"
+      class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5"
+    >
       <div data-help="统计当天脚本扫描过的所有岗位">
         <div class="text-sm text-gray-500">岗位总数：</div>
         <div class="text-2xl font-semibold">
@@ -135,10 +233,13 @@ onMounted(() => {
         <UButton
           color="primary"
           data-help="点击开始就会开始投递"
-          :loading="ctx.workflow?.status.value === 'running'"
+          :loading="initializationLoading || ctx.workflowRunning.value"
+          :disabled="
+            !ctx.initializationReady.value || startBlockedByStopReason || ctx.workflowRunning.value
+          "
           @click="ctx.start()"
         >
-          {{ ctx.workflow?.status.value === 'stop' ? '继续' : '开始' }}
+          {{ startLabel }}
         </UButton>
         <UButton
           v-if="ctx.workflow?.status.value === 'stop'"
@@ -149,7 +250,7 @@ onMounted(() => {
           重置筛选
         </UButton>
         <UButton
-          v-if="ctx.workflow?.status.value === 'running'"
+          v-if="ctx.workflowRunning.value"
           color="warning"
           data-help="暂停后应该能继续"
           @click="ctx.stop()"

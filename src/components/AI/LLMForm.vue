@@ -91,7 +91,12 @@ onMounted(() => {
         </h3> -->
       </div>
       <div v-else-if="key == 'avatar'" class="border-b border-default pb-4 mb-4">
-        <UFormField :required="true" :ui="{ container: 'flex flex-row gap-2' }" title="Avatar">
+        <UFormField
+          label="模型图标"
+          :required="true"
+          :ui="{ container: 'flex flex-row gap-2' }"
+          title="模型图标"
+        >
           <UInputMenu
             v-if="llmFormRef"
             v-model="formData['avatar']"

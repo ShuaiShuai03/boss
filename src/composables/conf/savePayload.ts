@@ -19,3 +19,11 @@ export function createConfSavePayload<FormDataLike>(
     formDataPresets: jsonClone(formDataPresets),
   }
 }
+
+export async function commitAfterPersistence(
+  persist: () => Promise<unknown>,
+  commit: () => void,
+) {
+  await persist()
+  commit()
+}

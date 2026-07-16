@@ -1,11 +1,7 @@
-import {
-  BOSS_HELPER_CHAT_BRIDGE_RESULT,
-  BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-  type BossHelperChatMessageArgs,
-  type BossHelperChatSendResult,
-  isBossHelperChatSendRequest,
-} from './chatBridge'
+import { bossProtocolUserIdToSafeNumber } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
+
+import type { BossHelperChatMessageArgs } from './chatBridge'
 
 type GeekChatCoreVersion = '1.0.8' | '2.0.1'
 
@@ -30,8 +26,6 @@ const GEEK_CHAT_DEFAULT_VERSION: GeekChatCoreVersion = '1.0.8'
 const GEEK_CHAT_VERSION_V2: GeekChatCoreVersion = '2.0.1'
 const GEEK_CHAT_SCRIPT_TS = '20260123'
 const GEEK_CHAT_TIMEOUT_MS = 20000
-const GEEK_CHAT_BRIDGE_FLAG = '__BOSS_HELPER_GEEK_CHAT_BRIDGE_READY__'
-
 let scriptPromise: Promise<void> | null = null
 let clientPromise: Promise<GeekChatCoreClient> | null = null
 
@@ -160,10 +154,10 @@ async function loadGeekChatCoreScript(version: GeekChatCoreVersion) {
 }
 
 async function initGeekChatClient() {
-  const userId = window._PAGE?.uid ?? window._PAGE?.userId
+  const userId = bossProtocolUserIdToSafeNumber(window._PAGE?.uid ?? window._PAGE?.userId)
   const token = window._PAGE?.token
 
-  if (userId == null) {
+  if (!userId) {
     throw new Error('未获取到当前用户 uid')
   }
 
@@ -198,14 +192,6 @@ async function ensureGeekChatClient() {
   })
 
   return clientPromise
-}
-
-function normalizeChatError(error: unknown) {
-  if (error instanceof Error) {
-    return error
-  }
-
-  return new Error(typeof error === 'string' ? error : '聊天发送失败')
 }
 
 function waitForChatSendResult(client: GeekChatCoreClient, clientMid: number) {
@@ -254,6 +240,10 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
   if (!content) {
     throw new Error('打招呼内容为空')
   }
+  const recipientUid = bossProtocolUserIdToSafeNumber(args.to_uid)
+  if (!recipientUid) {
+    throw new Error('Boss/HR 用户 ID 超出聊天 SDK 支持范围')
+  }
 
   const client = await ensureGeekChatClient()
   const clientMid = Date.now()
@@ -261,7 +251,7 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
 
   client.sendMessage(
     {
-      uid: Number(args.to_uid),
+      uid: recipientUid,
       friendSource: args.friend_source ?? 0,
       encryptUid: args.to_name,
       encryptGid: '',
@@ -272,44 +262,4 @@ export async function sendChatByGeekChatCore(args: BossHelperChatMessageArgs) {
   )
 
   await waitForResult
-}
-
-function createSendResult(
-  requestId: string,
-  success: boolean,
-  error?: string,
-): BossHelperChatSendResult {
-  return {
-    source: BOSS_HELPER_CHAT_BRIDGE_SOURCE,
-    type: BOSS_HELPER_CHAT_BRIDGE_RESULT,
-    requestId,
-    success,
-    error,
-  }
-}
-
-export function initGeekChatBridge() {
-  if (window[GEEK_CHAT_BRIDGE_FLAG] === true) {
-    return
-  }
-
-  window[GEEK_CHAT_BRIDGE_FLAG] = true
-
-  window.addEventListener('message', (event) => {
-    if (event.source !== window || !isBossHelperChatSendRequest(event.data)) {
-      return
-    }
-
-    const { requestId, payload } = event.data
-
-    void sendChatByGeekChatCore(payload)
-      .then(() => {
-        window.postMessage(createSendResult(requestId, true), '*')
-      })
-      .catch((error) => {
-        const normalizedError = normalizeChatError(error)
-        logger.error('主世界聊天发送失败', normalizedError)
-        window.postMessage(createSendResult(requestId, false, normalizedError.message), '*')
-      })
-  })
 }

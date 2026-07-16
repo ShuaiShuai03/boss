@@ -1,8 +1,11 @@
 name: Main
 on:
-  # push:
-  #   tags:
-  #     - '*'
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
   workflow_dispatch:
   # schedule:
   #  - cron: "30 0 * * *"
@@ -10,25 +13,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [21]
     outputs:
       current_time: ${{ steps.current_time.outputs.current_time }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 8
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: pnpm
+          bun-version: 1.3.14
 
       - name: Install dependencies
-        run: pnpm install
+        run: bun install --frozen-lockfile
 
       - name: Get current time
         id: current_time
@@ -49,16 +45,43 @@ jobs:
       - name: Watch Environment
         run: echo "version=$VITE_VERSION,mode=$VITE_RELEASE_MODE"
 
-      - name: Build
-        run: pnpm run build:noTsc
+      - name: Type check
+        run: bun run check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit and source contract tests
+        run: bun run test
+
+      - name: Build Chrome MV3
+        run: bun run build:chrome
+
+      - name: Verify built artifacts
+        run: bun run test:built
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Verify Chrome UI
+        run: bun run test:e2e
+
+      - name: Package Chrome extension
+        run: bun run zip:chrome
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          path: dist/*
+          name: boss-helper-chrome
+          path: .output/*-chrome.zip
+          if-no-files-found: error
 
   release:
     needs: build
+    # Quality-gate checks (the `build` job) now run automatically on every push/PR, but
+    # publishing must stay opt-in: only a tag push or an explicit manual dispatch should create a
+    # GitHub release/prerelease, never an ordinary push to main or a PR (BH-CI-01).
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,15 +91,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
-      - name: ls dist
-        run: ls -la dist/*
+          merge-multiple: true
+      - name: List artifacts
+        run: find dist -maxdepth 2 -type f -print
 
       - name: Release
         uses: softprops/action-gh-release@v2.0.4
         if: startsWith(github.ref, 'refs/tags/')
         with:
           fail_on_unmatched_files: true
-          files: dist/**
+          files: dist/**/*.zip
 
       - name: Prerelease
         uses: softprops/action-gh-release@v2.0.4
@@ -86,4 +110,4 @@ jobs:
           tag_name: ${{needs.build.outputs.current_time}}
           fail_on_unmatched_files: true
           prerelease: true
-          files: dist/**
+          files: dist/**/*.zip

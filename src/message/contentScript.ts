@@ -5,7 +5,7 @@ import type { StorageItemKey } from '#imports'
 import { storage } from '#imports'
 
 import type { BackgroundCounter } from './background'
-export { ProvideContentAdapter } from './contentScriptShare'
+export { createContentBridgeOptions, ProvideContentAdapter } from './contentScriptShare'
 
 export const [, injectBackgroundCounter] = defineProxy(() => ({}) as BackgroundCounter, {
   namespace: '__boss-helper-background__',
@@ -56,6 +56,50 @@ export class ContentCounter implements BackgroundCounter {
 
   async fetch(...args: Parameters<typeof fetch>) {
     return this.background.fetch(...args)
+  }
+
+  async getWorkflowOwnerId(runtimeId: string) {
+    const response = await browser.runtime.sendMessage({
+      type: 'boss-helper:get-workflow-owner-id',
+      runtimeId,
+    })
+    if (
+      typeof response !== 'object' ||
+      response === null ||
+      !('ownerId' in response) ||
+      typeof response.ownerId !== 'string'
+    ) {
+      throw new Error('无法确定工作流所在标签页')
+    }
+    return response.ownerId
+  }
+
+  async readWorkflowRun(...args: Parameters<BackgroundCounter['readWorkflowRun']>) {
+    return this.background.readWorkflowRun(...args)
+  }
+
+  async claimWorkflowRun(...args: Parameters<BackgroundCounter['claimWorkflowRun']>) {
+    return this.background.claimWorkflowRun(...args)
+  }
+
+  async updateWorkflowRun(...args: Parameters<BackgroundCounter['updateWorkflowRun']>) {
+    return this.background.updateWorkflowRun(...args)
+  }
+
+  async pauseWorkflowRun(...args: Parameters<BackgroundCounter['pauseWorkflowRun']>) {
+    return this.background.pauseWorkflowRun(...args)
+  }
+
+  async resetWorkflowRunFilters(...args: Parameters<BackgroundCounter['resetWorkflowRunFilters']>) {
+    return this.background.resetWorkflowRunFilters(...args)
+  }
+
+  async sessionStorageGet<T>(key: string, defaultValue: T) {
+    return this.background.sessionStorageGet(key, defaultValue)
+  }
+
+  async sessionStorageSet<T>(key: string, value: T) {
+    return this.background.sessionStorageSet(key, value)
   }
 
   async storageGet<T>(key: string, defaultValue: T): Promise<T>

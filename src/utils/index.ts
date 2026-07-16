@@ -56,10 +56,23 @@ export function animate({
 let delayLoadId: number | undefined
 
 // 延迟
-export async function delay(s: number, isStopped?: () => boolean) {
+export async function delay(s: number, isStopped?: () => boolean, signal?: AbortSignal) {
   return new Promise<void>((resolve) => {
-    loader({ ms: s * 1000, isStopped, onDone: resolve })
-    setTimeout(resolve, s * 1000)
+    let settled = false
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let clearLoader = () => {}
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (timeout) clearTimeout(timeout)
+      clearLoader()
+      signal?.removeEventListener('abort', finish)
+      resolve()
+    }
+    clearLoader = loader({ ms: s * 1000, isStopped, onDone: finish })
+    timeout = setTimeout(finish, s * 1000)
+    if (signal?.aborted) finish()
+    else signal?.addEventListener('abort', finish, { once: true })
   })
 }
 

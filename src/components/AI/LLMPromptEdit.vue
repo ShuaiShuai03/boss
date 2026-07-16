@@ -3,12 +3,13 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
-import { parseFiltering } from '@/composables/useApplying/utils'
+import { filteringOutputSchema, parseFiltering } from '@/composables/useApplying/utils'
 import { JobData, useHelper } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
 import { generateOptimizedSystemPrompt } from '@/composables/useModel/promptOptimizer'
 import type { Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
+import { sanitizeErrorMessage } from '@/utils/sensitive'
 
 import Alert from '../Alert.vue'
 
@@ -34,9 +35,7 @@ const role = ['system', 'user', 'assistant']
 
 const message = ref<Prompt>([])
 const canOptimizePrompt = computed(() => props.data === 'aiFiltering' || props.data === 'aiReply')
-const optimizerLabel = computed(() =>
-  props.data === 'aiFiltering' ? '筛选偏好' : '回复偏好',
-)
+const optimizerLabel = computed(() => (props.data === 'aiFiltering' ? '筛选偏好' : '回复偏好'))
 const optimizerPlaceholder = computed(() =>
   props.data === 'aiFiltering'
     ? '例如：排除 [岗位类型 A]、[岗位类型 B]；优先 [目标方向]；[工作制度/通勤/薪资] 不符合时扣分。'
@@ -77,8 +76,7 @@ function findSystemMessageIndex() {
 }
 
 async function optimizeSystemPrompt() {
-  const target =
-    props.data === 'aiFiltering' || props.data === 'aiReply' ? props.data : undefined
+  const target = props.data === 'aiFiltering' || props.data === 'aiReply' ? props.data : undefined
   if (!target) {
     return
   }
@@ -136,9 +134,12 @@ async function optimizeSystemPrompt() {
       color: 'success',
     })
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMessage = sanitizeErrorMessage(err, [
+      modelConf.data?.api_key,
+      modelConf.data?.advanced?.extra_headers,
+    ])
     optimizerError.value = errorMessage
-    logger.error('AI 优化 System Prompt 失败', err)
+    logger.error('AI 优化 System Prompt 失败', errorMessage)
     toast.add({
       title: errorMessage,
       color: 'error',
@@ -266,7 +267,12 @@ async function testJob() {
       model: currentModel.value,
       prompt: jsonClone(message.value),
     }
-    if (!helper.chatModel.createAgent(form, agentName, { json: props.data === 'aiFiltering' })) {
+    if (
+      !helper.chatModel.createAgent(form, agentName, {
+        json: props.data === 'aiFiltering',
+        schema: props.data === 'aiFiltering' ? filteringOutputSchema : undefined,
+      })
+    ) {
       toast.add({
         title: helper.chatModel.lastCreateAgentError || '模型配置不可用',
         color: 'warning',
@@ -287,7 +293,8 @@ async function testJob() {
         const result = await helper.chatModel.chat(agentName, data)
         let content = result.text.trim()
         if (props.data === 'aiFiltering' && content) {
-          content = parseFiltering(content).message || content
+          content =
+            parseFiltering(content, { finishReason: result.finishReason }).message || content
         }
         testDataContent[item.key].push({
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -297,9 +304,11 @@ async function testJob() {
           content,
         })
       } catch (err: any) {
-        logger.error(err)
+        logger.error(
+          sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
+        )
         toast.add({
-          title: err.message,
+          title: sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
           color: 'error',
         })
       } finally {
@@ -312,9 +321,9 @@ async function testJob() {
       await Promise.all(batch.map(handle))
     }
   } catch (err: any) {
-    logger.error(err)
+    logger.error(sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]))
     toast.add({
-      title: err.message,
+      title: sanitizeErrorMessage(err, [md.data?.api_key, md.data?.advanced?.extra_headers]),
       color: 'error',
     })
   } finally {
@@ -332,7 +341,8 @@ async function savePrompt() {
     })
     return
   }
-  if (!model.modelData.value.some((item) => item.key === modelKey)) {
+  const modelConf = model.modelData.value.find((item) => item.key === modelKey)
+  if (!modelConf) {
     toast.add({
       title: '模型不存在，请先在模型配置中保存该模型',
       color: 'warning',
@@ -351,9 +361,12 @@ async function savePrompt() {
     await conf.confSaving()
     show.value = false
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = sanitizeErrorMessage(err, [
+      modelConf.data?.api_key,
+      modelConf.data?.advanced?.extra_headers,
+    ])
     saveError.value = message
-    logger.error('保存 AI Prompt 失败', err)
+    logger.error('保存 AI Prompt 失败', message)
   } finally {
     saving.value = false
   }
@@ -392,7 +405,10 @@ watch(testDialog, (opened) => {
   >
     <template #body>
       <div v-if="data === 'aiFiltering'">
-        <UFormField label="过滤分数">
+        <UFormField
+          label="最低投递分数"
+          description="AI 综合评分低于此值时跳过岗位；达到或超过此值时继续投递流程。"
+        >
           <UInputNumber v-model="score" :min="-100" :max="100" size="sm" placeholder="请输入分数" />
         </UFormField>
       </div>
@@ -402,7 +418,7 @@ watch(testDialog, (opened) => {
           <UButton color="primary" @click="addMessage"> 添加消息 </UButton>
         </div>
         <div class="flex gap-2">
-          <UButton color="info" @click="inputExample"> 填入示例值 </UButton>
+          <UButton color="info" @click="inputExample"> 恢复推荐模板 </UButton>
           <USelectMenu
             v-model="currentModel"
             :items="model.modelData.value"
@@ -435,25 +451,35 @@ watch(testDialog, (opened) => {
           </USelectMenu>
         </div>
       </div>
-      <div v-pre>
-        <Alert v-if="currentModel?.startsWith('vip-')" id="vip-alert" title="注意" type="warning">
-          会员模型暂时不支持输出 思考过程, 比如deepseekR1，但是不影响模型能力
-        </Alert>
-        使用 {{}} 来渲染变量。
-        <ULink
-          to="https://github.com/Ocyss/boss-helper/blob/master/src/types/bossData.d.ts"
-          target="_blank"
+      <div class="rounded-md bg-elevated p-3 text-sm text-muted">
+        <Alert
+          v-if="currentModel?.startsWith('vip-')"
+          id="vip-alert"
+          title="模型输出说明"
+          color="info"
         >
-          变量表
-        </ULink>
-        <br />
-        推荐阅读
-        <ULink to="https://langgptai.feishu.cn/wiki/RXdbwRyASiShtDky381ciwFEnpe" target="_blank">
-          《LangGPT》
-        </ULink>
-        的提示词文档学习 ( 示例提示词写的并不好,欢迎AI大佬来提pr )
+          部分模型不会单独返回思考过程，但不影响最终结果。
+        </Alert>
+        <p>
+          使用
+          <code class="text-default" v-text="'{{ jobData.jobName }}'"></code>
+          这样的变量插入岗位或流程数据；可在
+          <ULink
+            to="https://github.com/Ocyss/boss-helper/blob/master/src/types/bossData.d.ts"
+            target="_blank"
+          >
+            变量表
+          </ULink>
+          中查看可用字段。
+        </p>
+        <p class="mt-1">
+          建议保留 system 消息中的输出格式和安全约束，再根据个人经历、求职偏好和表达风格调整内容。
+        </p>
       </div>
-      <div v-if="data === 'aiGreeting'" class="flex items-center justify-between gap-4 border-y border-default py-3">
+      <div
+        v-if="data === 'aiGreeting'"
+        class="flex items-center justify-between gap-4 border-y border-default py-3"
+      >
         <div class="min-w-0">
           <div class="text-sm font-medium text-default">后续回复</div>
           <p class="text-sm text-muted">
@@ -496,7 +522,7 @@ watch(testDialog, (opened) => {
             :disabled="saving || optimizing || model.isLoading.value"
             @click="optimizeSystemPrompt"
           >
-            AI 优化 System Prompt
+            AI 优化系统提示词
           </UButton>
         </div>
       </div>
@@ -506,19 +532,28 @@ watch(testDialog, (opened) => {
             <USelectMenu
               v-model="item.role"
               :items="role"
+              :aria-label="`第 ${index + 1} 条提示词消息角色`"
               :portal="promptModelRef?.parentElement ?? false"
               :content="{ side: 'right' }"
             />
             <UButton
               color="error"
               variant="outline"
+              :aria-label="`删除第 ${index + 1} 条提示词消息`"
               @click.prevent="removeMessage(item)"
               class="w-full"
             >
               删除
             </UButton>
           </div>
-          <UTextarea v-model="item.content" autoresize :rows="2" :maxrows="6" class="flex-1" />
+          <UTextarea
+            v-model="item.content"
+            autoresize
+            :rows="2"
+            :maxrows="6"
+            class="flex-1"
+            :aria-label="`第 ${index + 1} 条提示词消息内容`"
+          />
         </div>
       </div>
       <UAlert
@@ -527,11 +562,17 @@ watch(testDialog, (opened) => {
         variant="subtle"
         title="保存失败"
         :description="saveError"
+        role="alert"
       />
     </template>
 
     <template #footer>
-      <UButton color="neutral" variant="outline" :disabled="saving || optimizing" @click="show = false">
+      <UButton
+        color="neutral"
+        variant="outline"
+        :disabled="saving || optimizing"
+        @click="show = false"
+      >
         关闭
       </UButton>
       <UButton

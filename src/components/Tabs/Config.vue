@@ -17,6 +17,12 @@ import Appearance from './Appearance.vue'
 
 const helper = useHelper()
 const conf = useConf()
+
+function changePreset(value: unknown) {
+  if (typeof value === 'string') {
+    void conf.switchPreset(value)
+  }
+}
 const toast = useToast()
 const items = computed<AccordionItem[]>(() => {
   const configs = [
@@ -148,7 +154,7 @@ function gotoAmapDevSetting() {
             type="success"
             show-icon
           />
-          <div class="grid grid-cols-2 gap-2 mt-2" style="width: 100%" data-help="筛选配置">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2" style="width: 100%" data-help="筛选配置">
             <form-item
               v-bind="formInfoData.company"
               v-model:enable="conf.formData.company.enable"
@@ -156,6 +162,7 @@ function gotoAmapDevSetting() {
               :disabled="helper.workflowRunning.value"
             >
               <formSelect
+                :label="formInfoData.company.label"
                 v-model:value="conf.formData.company.value"
                 v-model:options="conf.formData.company.options"
               />
@@ -167,6 +174,7 @@ function gotoAmapDevSetting() {
               :disabled="helper.workflowRunning.value"
             >
               <form-select
+                :label="formInfoData.jobTitle.label"
                 v-model:value="conf.formData.jobTitle.value"
                 v-model:options="conf.formData.jobTitle.options"
               />
@@ -178,6 +186,7 @@ function gotoAmapDevSetting() {
               :disabled="helper.workflowRunning.value"
             >
               <form-select
+                :label="formInfoData.jobContent.label"
                 v-model:value="conf.formData.jobContent.value"
                 v-model:options="conf.formData.jobContent.options"
               />
@@ -190,6 +199,7 @@ function gotoAmapDevSetting() {
               :disabled="helper.workflowRunning.value"
             >
               <form-select
+                :label="formInfoData.hrPosition.label"
                 v-model:value="conf.formData.hrPosition.value"
                 v-model:options="conf.formData.hrPosition.options"
               />
@@ -202,19 +212,24 @@ function gotoAmapDevSetting() {
               :disabled="helper.workflowRunning.value"
             >
               <form-select
+                :label="formInfoData.jobAddress.label"
                 v-model:value="conf.formData.jobAddress.value"
                 v-model:options="conf.formData.jobAddress.options"
               />
             </form-item>
-            <div></div>
             <form-item
               v-if="conf.configLevel.intermediate"
               v-bind="formInfoData.salaryRange"
               v-model:enable="conf.formData.salaryRange.enable"
-              class="col-span-2 xl:col-span-1"
+              class="col-span-full xl:col-span-1"
               ref="salaryRangeRef"
             >
-              <SalaryRangeComponent :value="conf.formData.salaryRange.value" unit="K" :show="false">
+              <SalaryRangeComponent
+                :value="conf.formData.salaryRange.value"
+                :label="formInfoData.salaryRange.label"
+                unit="K"
+                :show="false"
+              >
                 <UButton
                   v-if="conf.configLevel.advanced"
                   @click="salaryRangeAdvanced = !salaryRangeAdvanced"
@@ -280,11 +295,12 @@ function gotoAmapDevSetting() {
               v-if="conf.configLevel.intermediate"
               v-bind="formInfoData.companySizeRange"
               v-model:enable="conf.formData.companySizeRange.enable"
-              class="col-span-2 xl:col-span-1"
+              class="col-span-full xl:col-span-1"
             >
               <SalaryRangeComponent
                 :controls="false"
                 :value="conf.formData.companySizeRange.value"
+                :label="formInfoData.companySizeRange.label"
                 unit="人"
                 :show="true"
               />
@@ -327,7 +343,10 @@ function gotoAmapDevSetting() {
               v-bind="formInfoData.customGreeting"
               v-model:enable="conf.formData.customGreeting.enable"
             >
-              <UTextarea v-model="conf.formData.customGreeting.value" />
+              <UTextarea
+                v-model="conf.formData.customGreeting.value"
+                aria-label="自定义招呼语内容"
+              />
               <UButton> 高级 </UButton>
             </form-item>
             <UCheckbox
@@ -363,7 +382,7 @@ function gotoAmapDevSetting() {
               title="AI Prompt 参考如下语法(仅筛选可用):"
             >
               <template #description>
-                <div class="grid grid-cols-2 gap-2">
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                   <span v-pre>直线距离: {{ amap.straightDistance }}km</span>
                   <span v-pre>驾车距离: {{ amap.drivingDistance }}km</span>
                   <span v-pre>驾车时间: {{ amap.drivingDuration }}分钟</span>
@@ -378,7 +397,7 @@ function gotoAmapDevSetting() {
                 <UInput v-model="conf.formData.amap.key" />
               </UFormField>
             </div>
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
               <UFormField v-bind="formInfoData.amap.origins">
                 <UFieldGroup>
                   <UInput v-model="conf.formData.amap.origins" :disabled="amapGeocodeLoading" />
@@ -459,7 +478,7 @@ function gotoAmapDevSetting() {
           </div>
         </template>
         <template #delay>
-          <div class="grid grid-cols-2 gap-3" data-help="延迟配置">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2" data-help="延迟配置">
             <UFormField
               v-for="(item, key) in formInfoData.delay"
               :key
@@ -541,9 +560,20 @@ function gotoAmapDevSetting() {
         </UFormField>
       </div>
     </UForm>
-    <div class="flex flex-row *:flex *:flex-row justify-between *:gap-3 mt-3">
-      <div>
-        <UButton color="success" data-help="保存配置，会自动刷新页面。" @click="conf.confSaving">
+    <div
+      class="sticky bottom-0 z-10 mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-default bg-default/95 py-3 backdrop-blur"
+    >
+      <div class="flex flex-wrap items-center gap-3">
+        <span role="status" aria-live="polite" class="text-sm text-muted">
+          {{ conf.isDirty.value ? '有未保存的配置更改' : '当前配置已保存' }}
+        </span>
+        <UButton
+          color="success"
+          data-help="将当前配置保存到所选预设。"
+          :loading="conf.isSaving.value"
+          :disabled="conf.isLoading.value || !conf.isDirty.value"
+          @click="conf.confSaving"
+        >
           保存配置
         </UButton>
         <UButton color="warning" data-help="重新加载本地配置" @click="conf.confReload">
@@ -557,16 +587,19 @@ function gotoAmapDevSetting() {
           使用推荐配置
         </UButton>
       </div>
-      <div>
+      <div class="flex flex-wrap items-center gap-3">
         <UFormField
           label="预设: "
           data-help="虽然不维护多账号了, 但是预设还是要有的, 这样使用隐身/第三方扩展依旧能多账号使用. 多账号是一件多助人为乐的事呀"
         >
           <UInputMenu
-            v-model="conf.formDataPreset.value"
+            :model-value="conf.formDataPreset.value"
             :items="conf.formDataPresets.value"
             value-key="value"
             create-item
+            :ui="{ content: 'z-50' }"
+            :disabled="conf.isLoading.value || conf.isDirty.value"
+            @update:model-value="changePreset"
             @create="conf.createPreset"
           />
         </UFormField>

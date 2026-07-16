@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   getModelEndpointCandidates,
+  mergeAdvancedRequestBody,
   normalizeOpenaiConfig,
   normalizeOpenaiBaseUrl,
   parseOpenaiModelIds,
@@ -19,6 +20,10 @@ assert.equal(
   normalizeOpenaiBaseUrl('https://ark.cn-beijing.volces.com/api/v3'),
   'https://ark.cn-beijing.volces.com/api/v3',
 )
+assert.equal(normalizeOpenaiBaseUrl('http://localhost:11434/v1'), 'http://localhost:11434/v1')
+assert.throws(() => normalizeOpenaiBaseUrl('javascript:alert(1)'), /仅支持 https:\/\//)
+assert.throws(() => normalizeOpenaiBaseUrl('http://192.168.1.10/v1'), /http:\/\/ 仅允许本机地址/)
+assert.throws(() => normalizeOpenaiBaseUrl('api.example.com/v1'), /Invalid URL/)
 
 assert.deepEqual(
   getModelEndpointCandidates('https://api.example.com').map((item) => item.modelsUrl),
@@ -86,6 +91,38 @@ assert.throws(
       },
     }),
   /advanced\.tools 必须是 JSON 数组/,
+)
+
+// BH-AI-03: extra_body/tools/tool_choice must actually reach the outgoing request body instead of
+// being silently dropped.
+assert.equal(mergeAdvancedRequestBody(undefined, {}), undefined)
+assert.equal(mergeAdvancedRequestBody('{"model":"x"}', {}), '{"model":"x"}')
+
+assert.deepEqual(
+  JSON.parse(
+    mergeAdvancedRequestBody('{"model":"x"}', { extra_body: { provider: { order: ['openai'] } } }),
+  ),
+  { model: 'x', provider: { order: ['openai'] } },
+)
+
+assert.deepEqual(
+  JSON.parse(
+    mergeAdvancedRequestBody('{"model":"x","tools":[{"type":"a"}]}', {
+      tools: [{ type: 'web_search' }],
+    }),
+  ),
+  { model: 'x', tools: [{ type: 'a' }, { type: 'web_search' }] },
+)
+
+assert.deepEqual(
+  JSON.parse(mergeAdvancedRequestBody('{"model":"x"}', { tool_choice: 'none' })),
+  { model: 'x', tool_choice: 'none' },
+)
+
+// A body that isn't valid JSON (e.g. a non-chat request) is left untouched rather than throwing.
+assert.equal(
+  mergeAdvancedRequestBody('not json', { extra_body: { a: 1 } }),
+  'not json',
 )
 
 console.log('openai utils verification passed')

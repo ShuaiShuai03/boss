@@ -10,6 +10,10 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
 }
 
+function isLocalHttpHost(hostname: string) {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(hostname.toLowerCase())
+}
+
 function segmentsEndWith(segments: string[], tail: string[]) {
   if (segments.length < tail.length) return false
   return tail.every((item, index) => segments[segments.length - tail.length + index] === item)
@@ -19,24 +23,21 @@ export function normalizeOpenaiBaseUrl(baseUrl: string) {
   const trimmed = trimTrailingSlash(baseUrl.trim())
   if (!trimmed) return ''
 
-  try {
-    const url = new URL(trimmed)
-    url.hash = ''
-    url.search = ''
-
-    let segments = url.pathname.split('/').filter(Boolean)
-    const matchedTail = endpointTails.find((tail) => segmentsEndWith(segments, tail))
-    if (matchedTail) {
-      segments = segments.slice(0, -matchedTail.length)
-    }
-
-    url.pathname = segments.length ? `/${segments.join('/')}` : ''
-    return trimTrailingSlash(url.toString())
-  } catch {
-    return trimTrailingSlash(
-      trimmed.replace(/\/(?:chat\/completions|responses|models|completions|embeddings)$/i, ''),
-    )
+  const url = new URL(trimmed)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocalHttpHost(url.hostname))) {
+    throw new Error('Base URL 仅支持 https://，http:// 仅允许本机地址')
   }
+  url.hash = ''
+  url.search = ''
+
+  let segments = url.pathname.split('/').filter(Boolean)
+  const matchedTail = endpointTails.find((tail) => segmentsEndWith(segments, tail))
+  if (matchedTail) {
+    segments = segments.slice(0, -matchedTail.length)
+  }
+
+  url.pathname = segments.length ? `/${segments.join('/')}` : ''
+  return trimTrailingSlash(url.toString())
 }
 
 function joinApiPath(baseUrl: string, path: string) {
@@ -44,12 +45,8 @@ function joinApiPath(baseUrl: string, path: string) {
 }
 
 function hasVersionPath(baseUrl: string) {
-  try {
-    const segments = new URL(baseUrl).pathname.split('/').filter(Boolean)
-    return segments.some((segment) => /^v\d+$/i.test(segment))
-  } catch {
-    return /(?:^|\/)v\d+(?:\/|$)/i.test(baseUrl)
-  }
+  const segments = new URL(baseUrl).pathname.split('/').filter(Boolean)
+  return segments.some((segment) => /^v\d+$/i.test(segment))
 }
 
 export interface ModelEndpointCandidate {
@@ -132,7 +129,9 @@ function parseJsonField(value: unknown, field: string): unknown {
   try {
     return JSON.parse(trimmed)
   } catch (error) {
-    throw new Error(`${field} 不是有效的 JSON: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `${field} 不是有效的 JSON: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
 }
 
@@ -145,13 +144,52 @@ function normalizeObjectField(value: unknown, field: string): Record<string, any
   throw new Error(`${field} 必须是 JSON 对象`)
 }
 
-function normalizeArrayField(value: unknown, field: string): Array<Record<string, any>> | undefined {
+function normalizeArrayField(
+  value: unknown,
+  field: string,
+): Array<Record<string, any>> | undefined {
   const parsed = parseJsonField(value, field)
   if (parsed == null) return undefined
   if (Array.isArray(parsed)) {
     return parsed as Array<Record<string, any>>
   }
   throw new Error(`${field} 必须是 JSON 数组`)
+}
+
+export interface AdvancedRequestBodyOverrides {
+  tools?: Array<Record<string, any>>
+  tool_choice?: string
+  extra_body?: object
+}
+
+// The advanced config UI lets users set `extra_body`/`tools`/`tool_choice`, but the AI SDK's
+// request builder has no generic passthrough for them, so they were silently ignored on the wire
+// (BH-AI-03). Applied to the already-serialized JSON request body regardless of which endpoint
+// (chat/completions or responses) built it, so this doesn't depend on SDK-specific option shapes.
+export function mergeAdvancedRequestBody(
+  body: string | undefined,
+  advanced: AdvancedRequestBodyOverrides,
+): string | undefined {
+  const hasOverrides =
+    Boolean(advanced.extra_body) || Boolean(advanced.tool_choice) || Boolean(advanced.tools?.length)
+  if (!body || !hasOverrides) return body
+
+  let parsed: Record<string, any>
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  if (advanced.tools?.length) {
+    parsed.tools = [...(Array.isArray(parsed.tools) ? parsed.tools : []), ...advanced.tools]
+  }
+  if (advanced.tool_choice) {
+    parsed.tool_choice = advanced.tool_choice
+  }
+  if (advanced.extra_body) {
+    Object.assign(parsed, advanced.extra_body)
+  }
+  return JSON.stringify(parsed)
 }
 
 export function normalizeOpenaiConfig<T extends Record<string, any>>(conf: T): T {
@@ -165,7 +203,8 @@ export function normalizeOpenaiConfig<T extends Record<string, any>>(conf: T): T
 
   return {
     ...conf,
-    base_url: typeof conf.base_url === 'string' ? normalizeOpenaiBaseUrl(conf.base_url) : conf.base_url,
+    base_url:
+      typeof conf.base_url === 'string' ? normalizeOpenaiBaseUrl(conf.base_url) : conf.base_url,
     other: {
       ...(conf.other ?? {}),
     },

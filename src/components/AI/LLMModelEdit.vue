@@ -9,6 +9,7 @@ import type { OpenaiLLMConf } from '@/composables/useModel/openai'
 import { normalizeOpenaiConfig } from '@/composables/useModel/openai-utils'
 import { jsonClone } from '@/utils/deepmerge'
 import { logger } from '@/utils/logger'
+import { sanitizeSensitiveText } from '@/utils/sensitive'
 
 import LLMForm from './LLMForm.vue'
 
@@ -36,7 +37,10 @@ const testShow = ref(false)
 
 const llmFormData = reactive(
   normalizeOpenaiConfig(
-    jsonClone(props.model?.data ?? ({ mode: 'openai', advanced: {}, other: {} } as OpenaiLLMConf)),
+    jsonClone(
+      props.model?.data ??
+        ({ mode: 'openai', advanced: { json: true }, other: {} } as OpenaiLLMConf),
+    ),
   ),
 )
 
@@ -55,8 +59,8 @@ const modelItems = computed(() =>
 )
 
 const testExample = {
-  Json: [
-    `我现在失业了,想找一个新工作,但岗位需求良莠不齐,我需要你对下面的岗位进行评分,我想要双休的,最好可以早九晚五,8小时的.不需要外出,不需要和客户聊天,不需要推销,最后给我Json格式的zifui
+  JSON: [
+    `我正在寻找新工作，需要你对下面的岗位进行评分。我希望双休、每天工作 8 小时，不需要外出、客户沟通或销售工作。请只返回符合下方接口定义的 JSON 对象。
 \`\`\` 岗位信息
 周末双休，早十晚七，带薪年假至少半个月，法定节假日正常放假，购买社保，带薪培训。
 网络销售!网络销售!不要再问我是不是纯电销啦!也不是贷款!!!公司的小伙伴很友好，面试结果当天就通知!没有kpi!放心咨询!
@@ -102,20 +106,17 @@ interface UserInfo {
 
 接下来开始分析：const userInfo=`,
   ],
-  弱智: [
+  问答: [
     '请问你怎么看待鲁迅打周树人呢?',
     '小于90度的是锐角，等于90度的是直角，大于90度的是钝角\n开水有100度，所以开水是钝角吗？',
   ],
 }
 
 function sanitizeError(err: unknown) {
-  let message = err instanceof Error ? err.message : String(err)
-  if (llmFormData.api_key) {
-    message = message.replaceAll(llmFormData.api_key, '[API_KEY]')
-  }
-  return message
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+  return sanitizeSensitiveText(err instanceof Error ? err.message : String(err), [
+    llmFormData.api_key,
+    llmFormData.advanced?.extra_headers,
+  ])
 }
 
 async function refreshModels() {
@@ -302,7 +303,7 @@ onBeforeUnmount(() => {
       <div class="flex justify-end gap-2">
         <UButton color="neutral" variant="outline" @click="show = false"> 取消 </UButton>
         <UButton color="neutral" @click="testShow = true"> 测试 </UButton>
-        <UButton @click="create"> 保存 </UButton>
+        <UButton @click="create"> 应用并保存 </UButton>
       </div>
     </template>
   </UModal>
@@ -321,9 +322,24 @@ onBeforeUnmount(() => {
           </UButton>
         </template>
       </UFieldGroup>
-      <div class="grid grid-cols-2 gap-3">
-        <UTextarea v-model="testIn" :rows="9" placeholder="输入提示词" />
-        <UTextarea :model-value="testOut" :rows="9" placeholder="GPT响应" />
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <UFormField label="模型测试输入">
+          <UTextarea
+            v-model="testIn"
+            :rows="9"
+            aria-label="模型测试输入"
+            placeholder="输入用于验证模型能力的提示词"
+          />
+        </UFormField>
+        <UFormField label="模型测试输出">
+          <UTextarea
+            :model-value="testOut"
+            :rows="9"
+            aria-label="模型测试输出"
+            placeholder="AI 响应"
+            readonly
+          />
+        </UFormField>
       </div>
       <UAlert
         v-if="testStatus === 'success'"
@@ -339,6 +355,7 @@ onBeforeUnmount(() => {
         variant="subtle"
         title="测试请求失败"
         :description="testOut"
+        role="alert"
       />
     </template>
 

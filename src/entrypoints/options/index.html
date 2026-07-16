@@ -1,17 +1,44 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Options Title</title>
+    <title>BossHelper 使用入口</title>
 
-    <!-- Customize the manifest options -->
     <meta name="manifest.open_in_tab" content="true" />
-
-    <!-- Set include/exclude if the page should be removed from some builds -->
-    <meta name="manifest.include" content="['chrome', 'firefox']" />
+    <meta name="manifest.include" content="['chrome']" />
+    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <!-- ... -->
+    <main class="shell">
+      <header>
+        <p class="eyebrow">BossHelper <span id="version"></span></p>
+        <h1>在 BOSS 直聘岗位页开始使用</h1>
+        <p class="intro">
+          BossHelper 的主界面会显示在 BOSS 直聘岗位列表页。本页只提供安全的使用入口和恢复说明。
+        </p>
+        <button id="open-boss" type="button">打开或切换到岗位页</button>
+        <p id="open-status" class="status" role="status" aria-live="polite"></p>
+      </header>
+
+      <section aria-labelledby="steps-title">
+        <h2 id="steps-title">首次使用三步</h2>
+        <ol>
+          <li><strong>确认场景：</strong>仅在自己的账号和允许的范围内使用自动化功能。</li>
+          <li><strong>检查配置：</strong>先设置筛选规则，再确认自动投递和招呼语开关。</li>
+          <li><strong>小批试运行：</strong>保存后从少量岗位开始，随时查看停止原因与日志。</li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="help-title">
+        <h2 id="help-title">没有看到主界面？</h2>
+        <ul>
+          <li>确认当前页面是 BOSS 直聘的岗位推荐或搜索列表。</li>
+          <li>刷新岗位页，让刚安装或更新的扩展重新注入。</li>
+          <li>若提示配置加载失败，请在主界面点击“重新加载”，不要直接开始投递。</li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>

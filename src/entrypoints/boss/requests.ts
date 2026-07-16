@@ -7,6 +7,7 @@ import {
   PublishError,
   RateLimitError,
 } from '@/composables/useApplying/deliverError'
+import { normalizeBossOpaqueUserId, normalizeBossProtocolUserId } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
 import type { BossZpBossData, BossZpDetailData } from './types'
@@ -28,6 +29,7 @@ export type RequestBossDataOptions = {
   errorMsg?: string
   retries?: number
   retryDelayMs?: number
+  signal?: AbortSignal
 }
 
 function normalizePublishResponse(res: any): PublishResponse {
@@ -49,16 +51,45 @@ function normalizeRequestBossDataOptions(
   return { retries, retryDelayMs: 2000, ...options }
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
+function requestSignal(signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
 }
 
-export async function requestDetail(params: { securityId: string; lid: string }): Promise<{
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }
+    const timeout = window.setTimeout(finish, ms)
+    const onAbort = () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function getBossToken() {
+  try {
+    return window.Cookie?.get?.('bst') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export async function requestDetail(
+  params: { securityId: string; lid: string },
+  signal?: AbortSignal,
+): Promise<{
   code: number
   message: string
   zpData: BossZpDetailData
 }> {
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -73,7 +104,7 @@ export async function requestDetail(params: { securityId: string; lid: string })
 
   return fetch(url.toString(), {
     headers: { Zp_token: token },
-    signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+    signal: requestSignal(signal),
   }).then((r) => r.json())
 }
 
@@ -82,6 +113,7 @@ export async function sendPublishReq(
   errorMsg?: string,
   retries = 3,
   _params = {},
+  signal?: AbortSignal,
 ): Promise<PublishResponse> {
   if (retries <= 0) {
     throw new PublishError(errorMsg ?? '重试多次失败')
@@ -93,7 +125,7 @@ export async function sendPublishReq(
     ..._params,
   }).forEach(([key, value]) => url.searchParams.append(key, String(value)))
 
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -105,7 +137,7 @@ export async function sendPublishReq(
     const rawRes = await fetch(url, {
       method: 'POST',
       headers: { Zp_token: token },
-      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+      signal: requestSignal(signal),
     }).then((r) => r.json())
     const res = normalizePublishResponse(rawRes)
 
@@ -124,14 +156,14 @@ export async function sendPublishReq(
           await fetch(url, {
             method: 'POST',
             headers: { Zp_token: token },
-            signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+            signal: requestSignal(signal),
           })
 
           const nextRetries = retries - 1
           if (nextRetries <= 0) {
             throw new PublishError(`投递限制确认后仍未成功: ${content}`)
           }
-          return sendPublishReq(data, undefined, nextRetries, { cid: 1 })
+          return sendPublishReq(data, undefined, nextRetries, { cid: 1 }, signal)
         } catch (e) {
           if (e instanceof BossHelperError) {
             throw e
@@ -154,7 +186,8 @@ export async function sendPublishReq(
     if (e instanceof BossHelperError) {
       throw e
     }
-    return sendPublishReq(data, e?.message as string, retries - 1)
+    if (signal?.aborted) throw e
+    return sendPublishReq(data, e?.message as string, retries - 1, _params, signal)
   }
 }
 
@@ -170,7 +203,7 @@ export async function requestBossData(
   }
   const url = 'https://www.zhipin.com/wapi/zpchat/geek/getBossData'
   // userInfo.value?.token 不相等！
-  const token = window?.Cookie.get('bst')
+  const token = getBossToken()
   if (!token) {
     toast.add({
       title: '没有获取到token,请刷新重试',
@@ -192,24 +225,40 @@ export async function requestBossData(
       body: body,
       method: 'POST',
       headers: { Zp_token: token },
-      signal: AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS),
+      signal: requestSignal(opt.signal),
     }).then((r) => r.json())
 
     if (res.code !== 0) {
       if (res.message === '非好友关系') {
         const nextRetries = retryCount - 1
         if (nextRetries > 0) {
-          await sleep(opt.retryDelayMs ?? 2000)
+          await sleep(opt.retryDelayMs ?? 2000, opt.signal)
         }
         return await requestBossData(job, { ...opt, errorMsg: '非好友关系', retries: nextRetries })
       }
       throw new GreetError(`状态错误:${res.message}`)
     }
-    return res.zpData
+    if (!normalizeBossProtocolUserId(res.zpData?.data?.bossId)) {
+      throw new GreetError('Boss 数据缺少有效用户 ID')
+    }
+    const encryptBossId =
+      normalizeBossOpaqueUserId(res.zpData?.data?.encryptBossId) ??
+      normalizeBossOpaqueUserId(job.encryptUserId)
+    if (!encryptBossId) {
+      throw new GreetError('Boss 数据缺少加密用户 ID')
+    }
+    return {
+      ...res.zpData,
+      data: {
+        ...res.zpData.data,
+        encryptBossId,
+      },
+    }
   } catch (e: any) {
     if (e instanceof GreetError) {
       throw e
     }
+    if (opt.signal?.aborted) throw e
     return requestBossData(job, { ...opt, errorMsg: e?.message as string, retries: retryCount - 1 })
   }
 }

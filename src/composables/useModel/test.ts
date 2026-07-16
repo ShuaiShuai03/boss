@@ -2,8 +2,11 @@ import { ChatMessageProps } from '@nuxt/ui'
 import {
   ChatState,
   ChatStatus,
+  FinishReason,
+  FlexibleSchema,
   ModelMessage,
-  Output,
+  NoObjectGeneratedError,
+  NoOutputGeneratedError,
   ToolLoopAgent,
   UIMessage,
   createIdGenerator,
@@ -13,10 +16,12 @@ import { ShallowReactive } from 'vue'
 import { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 import { normalizeExtensionContextError } from '@/utils/extension'
+import { sanitizeErrorMessage } from '@/utils/sensitive'
 
 import { ModelConf } from '.'
 import { WorkflowData } from '../useApplying/type'
 import { HelperContext } from '../useHelper'
+import { createAgentOutput } from './agent-output'
 import { getEffectiveAiTimeoutMs } from './common'
 import { openai } from './openai'
 
@@ -41,6 +46,24 @@ export interface ChatModelResult {
   text: string
   prompt: string
   reasoning_content: string | null
+  finishReason: FinishReason
+}
+
+// A structured-output request failed the contract at the SDK boundary (schema mismatch, refusal,
+// or a provider that ignores response_format entirely). Classified with bounded, sanitized
+// evidence instead of surfacing the SDK's raw (potentially long, prompt-echoing) error text.
+function classifyStructuredOutputError(e: unknown): Error | null {
+  if (!NoObjectGeneratedError.isInstance(e) && !NoOutputGeneratedError.isInstance(e)) {
+    return null
+  }
+  const text = NoObjectGeneratedError.isInstance(e) ? (e.text ?? '') : ''
+  const finishReason = NoObjectGeneratedError.isInstance(e) ? e.finishReason : undefined
+  logger.warn('结构化输出解析失败', {
+    finishReason,
+    textLength: text.length,
+    textPreview: text.slice(0, 200),
+  })
+  return new Error('AI 岗位筛选失败：模型未按约定的 JSON 结构返回', { cause: e })
 }
 
 function renderMessages(model: FormDataAi, data: WorkflowData<any, any>): ModelMessage[] {
@@ -193,14 +216,13 @@ ${data.jobData.jobDescription}`,
     name: MessageRole,
     opt?: {
       json?: boolean
+      schema?: FlexibleSchema<any>
     },
   ): boolean {
     this.lastCreateAgentError = ''
     const availableKeys = this.ctx.models.modelData.value.map((m) => m.key).filter(Boolean)
     if (!model.model) {
-      this.lastCreateAgentError = `模型 key 为空，可用模型 key: ${
-        availableKeys.join(', ') || '无'
-      }`
+      this.lastCreateAgentError = `模型 key 为空，可用模型 key: ${availableKeys.join(', ') || '无'}`
       logger.warn('创建 AI Agent 失败', this.lastCreateAgentError)
       return false
     }
@@ -220,7 +242,7 @@ ${data.jobData.jobDescription}`,
 
     const agent = new ToolLoopAgent({
       model: openai.createModel(conf.data),
-      output: opt?.json ? Output.json() : Output.text(),
+      output: createAgentOutput(Boolean(opt?.json), conf.data.advanced.json, opt?.schema),
       allowSystemInMessages: true,
       temperature: conf.data.advanced.temperature,
       topP: conf.data.advanced.top_p,
@@ -314,21 +336,28 @@ ${data.jobData.jobDescription}`,
         text,
         prompt,
         reasoning_content: reasoning || null,
+        finishReason: result.finishReason,
       }
     } catch (e) {
       state.status = 'error'
       const message = e instanceof Error ? e.message : String(e)
       const extensionError = normalizeExtensionContextError(e)
+      const structuredOutputError = classifyStructuredOutputError(e)
       const error =
         extensionError instanceof Error && extensionError !== e
           ? extensionError
-          : e instanceof DOMException && e.name === 'TimeoutError'
-            ? new Error('AI 请求超时', { cause: e })
-            : /timeout|timed out|aborted/i.test(message)
+          : structuredOutputError
+            ? structuredOutputError
+            : e instanceof DOMException && e.name === 'TimeoutError'
               ? new Error('AI 请求超时', { cause: e })
-              : e
+              : /timeout|timed out|aborted/i.test(message)
+                ? new Error('AI 请求超时', { cause: e })
+                : e
       state.error = error as Error
-      logger.error('Error during chat generation', e)
+      logger.error(
+        'Error during chat generation',
+        sanitizeErrorMessage(e, [modelConf.data?.api_key, modelConf.data?.advanced?.extra_headers]),
+      )
       throw error
     }
   }
