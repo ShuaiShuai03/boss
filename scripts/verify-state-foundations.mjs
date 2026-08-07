@@ -722,6 +722,27 @@ assert.doesNotMatch(configComponent, /保存配置，会自动刷新页面/)
 assert.match(mainStyles, /scrollbar-gutter:\s*stable/)
 assert.doesNotMatch(mainStyles, /scrollbar-gutter:\s*always/)
 
+// 自定义属性的 var() 是在“声明它的那个元素”上求值的，结果再往下继承。浅色令牌
+// 声明在带 data-cr-theme 的外壳上，所以 --ui-* 桥接层必须也声明在同一批选择器
+// 上；只写 :host 的话 --ui-bg 会在 :host 上被解析成深色并一路继承，切到浅色后
+// Nuxt UI 组件仍然是深色，而自绘的控制室外壳已经变浅——就是主题错配那个 bug。
+function selectorOfRuleDeclaring(css, property) {
+  const index = css.indexOf(`\n  ${property}`)
+  assert.ok(index !== -1, `main.css must declare ${property}`)
+  const open = css.lastIndexOf('{', index)
+  const previous = css.lastIndexOf('}', open)
+  // 注释里正好写着 [data-cr-theme]，不剥掉的话断言会匹配到说明文字而不是选择器
+  return css.slice(previous + 1, open).replace(/\/\*[\s\S]*?\*\//g, '')
+}
+
+for (const property of ['--ui-bg:', '--ui-text:', '--ui-primary:']) {
+  assert.match(
+    selectorOfRuleDeclaring(mainStyles, property),
+    /\[data-cr-theme\]/,
+    `${property} must be declared on the themed root too, or light mode keeps dark Nuxt UI colours`,
+  )
+}
+
 statistics.dispose()
 rollover.dispose()
 failing.dispose()

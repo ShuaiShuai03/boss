@@ -1,6 +1,7 @@
 import { reactiveComputed, useStorageAsync, watchThrottled } from '@vueuse/core'
 import { computed, reactive, ref, toRaw } from 'vue'
 
+import type { InitializationStatus } from '@/composables/statisticsStore'
 import { counter } from '@/message'
 import { ExtStorage } from '@/message'
 import type { ConfigLevel, FormData } from '@/types/formData'
@@ -13,7 +14,6 @@ import {
 import { exportJson, importJson } from '@/utils/jsonImportExport'
 import { logger } from '@/utils/logger'
 import { TimeoutError, withTimeout } from '@/utils/promise'
-import type { InitializationStatus } from '@/composables/statisticsStore'
 
 import { defaultFormData } from './info'
 import { migrateFormData } from './migration'
@@ -52,16 +52,28 @@ export const appearanceConf = useStorageAsync(
     leftChat: false,
     chatBoxWidth: 600,
     defaultShowChatBox: false,
+    // 控制室默认深色，浅色是同一套变量换值
+    theme: 'dark' as 'dark' | 'light',
   },
   ExtStorage,
   { mergeDefaults: true },
 )
+/**
+ * 控制室主题。面板和右上角菜单挂在两个不同的 shadow root 里，
+ * 共用这里的取值，避免其中一个留在深色而另一个已经切到浅色。
+ */
+export const crTheme = computed<'dark' | 'light'>(() =>
+  appearanceConf.value.theme === 'light' ? 'light' : 'dark',
+)
+
+export function toggleCrTheme() {
+  appearanceConf.value.theme = crTheme.value === 'dark' ? 'light' : 'dark'
+}
+
 const initializationStatus = ref<InitializationStatus>('idle')
 const initializationError = ref<string | null>(null)
 const operationLoading = ref(false)
-const isLoading = computed(
-  () => initializationStatus.value === 'loading' || operationLoading.value,
-)
+const isLoading = computed(() => initializationStatus.value === 'loading' || operationLoading.value)
 const formData: FormData = reactive(createDefaultFormData())
 const formDataPreset = ref('default')
 const isSaving = ref(false)
@@ -78,7 +90,8 @@ const formDataPresets = ref([
 const formDataKey = () => formDataKeyForPreset(formDataPreset.value)
 const serializedFormData = computed(() => JSON.stringify(formData))
 const isDirty = computed(
-  () => initializationStatus.value === 'ready' && serializedFormData.value !== persistedFormData.value,
+  () =>
+    initializationStatus.value === 'ready' && serializedFormData.value !== persistedFormData.value,
 )
 
 function markCurrentFormDataSaved(savedFormData: FormData = formData) {
@@ -145,7 +158,9 @@ export const useConf = () => {
             value: 'default',
           },
         ])
-        const selectedPreset = rawFormDataPresets.some((preset) => preset.value === rawFormDataPreset)
+        const selectedPreset = rawFormDataPresets.some(
+          (preset) => preset.value === rawFormDataPreset,
+        )
           ? rawFormDataPreset
           : 'default'
         const data = await loadPresetData(selectedPreset)

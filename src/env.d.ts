@@ -43,3 +43,10 @@ interface Window {
 }
 
 declare const __APP_VERSION__: string
+
+// 面板注入在页面 main world 里，拿不到 browser.runtime.getURL，
+// 图标必须以 data URI 打进包内。
+declare module '*.png?inline' {
+  const src: string
+  export default src
+}

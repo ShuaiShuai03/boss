@@ -8,8 +8,10 @@ import type { WorkflowData } from '@/composables/useApplying/type'
 import { parseFiltering } from '@/composables/useApplying/utils'
 import { useHelper } from '@/composables/useHelper'
 import { Message } from '@/composables/useModel/test'
-import { counter } from '@/message'
-import { PendingMessageQueue, pickConversationForMessage } from '@/features/aiReply/conversationRouter'
+import {
+  PendingMessageQueue,
+  pickConversationForMessage,
+} from '@/features/aiReply/conversationRouter'
 import {
   aiReplyDraftStorageKey,
   sanitizeStoredReplyDrafts,
@@ -22,6 +24,7 @@ import {
   type AiReplyConversation,
   type AiReplyRealtimeMessage,
 } from '@/features/aiReply/types'
+import { counter } from '@/message'
 
 const open = defineModel('open', { default: false })
 const following = ref(true)
@@ -545,9 +548,7 @@ const chars = 'abcdefghijklmnopqrstuvwxyz'
 const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 const animationActive = computed(
   () =>
-    open.value &&
-    messages.value?.statusRef.value === 'streaming' &&
-    !prefersReducedMotion.value,
+    open.value && messages.value?.statusRef.value === 'streaming' && !prefersReducedMotion.value,
 )
 let animationFrameId: number | undefined
 
@@ -611,10 +612,14 @@ function startIndicatorAnimation() {
   }, 3000)
 }
 
-watch(animationActive, (active) => {
-  if (active) startIndicatorAnimation()
-  else stopIndicatorAnimation()
-}, { immediate: true })
+watch(
+  animationActive,
+  (active) => {
+    if (active) startIndicatorAnimation()
+    else stopIndicatorAnimation()
+  },
+  { immediate: true },
+)
 
 onMounted(async () => {
   document.addEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
@@ -659,7 +664,8 @@ onUnmounted(() => {
     }"
   >
     <template #header>
-      <div class="flex flex-row overflow-x-auto gap-1 flex-1">
+      <span class="cr-eyebrow shrink-0 mr-2">对话 · Replies</span>
+      <div class="cr-sc flex flex-row overflow-x-auto gap-1 flex-1">
         <UButton
           v-for="job in jobs"
           :avatar="{
