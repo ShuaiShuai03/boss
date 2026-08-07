@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import Log from '@/components/Menu/Log.vue'
 import Store from '@/components/Menu/Store.vue'
 import Version from '@/components/Menu/Version.vue'
+import { crTheme } from '@/composables/conf'
 import { counter } from '@/message'
 import { logger } from '@/utils/logger'
 
@@ -56,7 +57,12 @@ const container = ref<HTMLDivElement>()
 </script>
 
 <template>
-  <div ref="container" class="fixed top-18 right-10 z-999">
+  <div
+    ref="container"
+    class="fixed top-18 right-10 z-999"
+    :data-cr-theme="crTheme"
+    :class="crTheme === 'dark' ? 'dark' : undefined"
+  >
     <UApp :portal="container" :toaster="{ position: 'top-right', ui: { viewport: 'z-100000' } }">
       <UDropdownMenu :items="dropdownItems">
         <UAvatar

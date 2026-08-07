@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BossHelper 使用入口</title>
+    <title>Boss·Helper 控制室 · 扩展设置</title>
 
     <meta name="manifest.open_in_tab" content="true" />
     <meta name="manifest.include" content="['chrome']" />
@@ -11,32 +11,85 @@
   </head>
   <body>
     <main class="shell">
-      <header>
-        <p class="eyebrow">BossHelper <span id="version"></span></p>
-        <h1>在 BOSS 直聘岗位页开始使用</h1>
-        <p class="intro">
-          BossHelper 的主界面会显示在 BOSS 直聘岗位列表页。本页只提供安全的使用入口和恢复说明。
-        </p>
-        <button id="open-boss" type="button">打开或切换到岗位页</button>
-        <p id="open-status" class="status" role="status" aria-live="polite"></p>
-      </header>
+      <section class="hero">
+        <span class="hazard" aria-hidden="true"></span>
 
-      <section aria-labelledby="steps-title">
-        <h2 id="steps-title">首次使用三步</h2>
-        <ol>
-          <li><strong>确认场景：</strong>仅在自己的账号和允许的范围内使用自动化功能。</li>
-          <li><strong>检查配置：</strong>先设置筛选规则，再确认自动投递和招呼语开关。</li>
-          <li><strong>小批试运行：</strong>保存后从少量岗位开始，随时查看停止原因与日志。</li>
-        </ol>
+        <div class="hero-copy">
+          <p class="eyebrow">Boss·Helper <span id="version">v—</span> · 扩展设置</p>
+          <h1>主界面在<br />岗位列表页里</h1>
+          <p class="intro">
+            Boss·Helper 不是一个独立网站。它注入在 BOSS
+            直聘的岗位推荐页和搜索页上，本页只提供入口、健康检查和恢复说明。
+          </p>
+          <div class="hero-actions">
+            <button id="open-boss" class="btn btn-primary" type="button">
+              打开或切换到岗位页 <span class="btn-arrow" aria-hidden="true">→</span>
+            </button>
+            <a
+              class="btn btn-ghost"
+              href="https://github.com/ocyss/boss-helper"
+              target="_blank"
+              rel="noreferrer"
+            >
+              查看使用指南
+            </a>
+          </div>
+          <p id="open-status" class="status" role="status" aria-live="polite"></p>
+        </div>
+
+        <div class="diagnostics">
+          <p class="eyebrow eyebrow-muted">健康检查 · Diagnostics</p>
+          <ul id="diagnostics" class="diag-list">
+            <li class="diag-row" data-tone="pending">
+              <span class="diag-dot"></span>
+              <span class="diag-label">正在检查扩展状态</span>
+              <span class="diag-state">…</span>
+            </li>
+          </ul>
+        </div>
       </section>
 
-      <section aria-labelledby="help-title">
-        <h2 id="help-title">没有看到主界面？</h2>
-        <ul>
-          <li>确认当前页面是 BOSS 直聘的岗位推荐或搜索列表。</li>
-          <li>刷新岗位页，让刚安装或更新的扩展重新注入。</li>
-          <li>若提示配置加载失败，请在主界面点击“重新加载”，不要直接开始投递。</li>
-        </ul>
+      <section class="steps-section" aria-labelledby="steps-title">
+        <h2 id="steps-title" class="steps-title">首次使用三步</h2>
+        <div class="steps">
+          <article class="step">
+            <span class="step-num">01</span>
+            <h3>确认场景</h3>
+            <p>仅在自己的账号和允许的范围内使用自动化功能，理解自动投递与自动沟通的风控风险。</p>
+          </article>
+          <article class="step">
+            <span class="step-num">02</span>
+            <h3>检查配置</h3>
+            <p>先设置筛选规则，再确认自动投递和招呼语开关，保存后确认显示「当前配置已保存」。</p>
+          </article>
+          <article class="step">
+            <span class="step-num">03</span>
+            <h3>小批试运行</h3>
+            <p>从少量岗位开始，随时查看停止原因与日志，确认结果符合预期后再放大批次。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="lower">
+        <div class="panel">
+          <h2>没有看到主界面？</h2>
+          <ul class="trouble">
+            <li>
+              <span aria-hidden="true">→</span>确认当前页面是 BOSS 直聘的岗位推荐或搜索列表页。
+            </li>
+            <li><span aria-hidden="true">→</span>刷新岗位页，让刚安装或更新的扩展重新注入。</li>
+            <li>
+              <span aria-hidden="true">→</span
+              >若提示配置加载失败，请在主界面点击「重新加载」，不要直接开始投递。
+            </li>
+          </ul>
+        </div>
+        <div class="panel panel-risk">
+          <h2>使用须知</h2>
+          <p>
+            本项目仅供学习、研究和个人效率探索，请遵守招聘平台规则和相关法律法规。自动化投递、自动化沟通和第三方模型调用都可能带来账号风控、信息误发或隐私泄露风险。使用前请充分理解配置含义，并自行承担使用结果。
+          </p>
+        </div>
       </section>
     </main>
     <script type="module" src="./main.ts"></script>

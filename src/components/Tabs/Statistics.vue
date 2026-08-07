@@ -7,33 +7,32 @@ import { useHelper } from '@/composables/useHelper'
 
 const ctx = useHelper()
 const emit = defineEmits<{
-  navigate: [tab: 'config' | 'logs']
+  navigate: [tab: 'rules' | 'logs']
 }>()
 
 const statistics = ctx.statistics
 
-// const { next, page } = usePager()
 const conf = useConf()
 const statisticCycle = ref(1)
 
 const statisticCycleData = [
   {
-    label: '近三日投递',
+    label: '近三日',
     help: '愿你每一次投递都能得到回应',
     date: 3,
   },
   {
-    label: '本周投递',
+    label: '本周',
     help: '愿你早日找到心满意足的工作',
     date: 7,
   },
   {
-    label: '本月投递',
+    label: '本月',
     help: '愿你在面试中得到满意的结果',
     date: 30,
   },
   {
-    label: '历史投递',
+    label: '历史',
     help: '愿你能早九晚五还双休带五险',
     date: -1,
   },
@@ -53,26 +52,10 @@ const cycle = computed(() => {
   return ans
 })
 
-const batchLimit = computed(
-  () => ctx.workflow?.batchLimit.value ?? conf.formData.deliveryLimit.value,
-)
-const batchSubmitted = computed(() => ctx.workflow?.batchSubmitted.value ?? 0)
-const batchProgress = computed(() => {
-  if (!batchLimit.value) return 0
-  return Number(((batchSubmitted.value / batchLimit.value) * 100).toFixed(1))
-})
 const initializationLoading = computed(() => ctx.initializationStatus.value === 'loading')
 const initializationFailed = computed(() => ctx.initializationStatus.value === 'error')
 const stopReason = computed(() => ctx.workflow?.stopReason.value ?? null)
-const workflowRecovering = computed(() => ctx.workflow?.status.value === 'recovering')
 const startBlockedByStopReason = computed(() => stopReason.value?.code === 'context_invalidated')
-const startLabel = computed(() => {
-  if (workflowRecovering.value) return '恢复中'
-  if (startBlockedByStopReason.value) return '刷新后重试'
-  if (stopReason.value?.code === 'batch_limit') return '开始下一批'
-  if (ctx.workflow?.status.value === 'stop') return '继续'
-  return '开始'
-})
 
 async function retryInitialization() {
   await ctx.ensureInitialized(true).catch(() => undefined)
@@ -113,10 +96,72 @@ function percent(value: number) {
   if (!statistics.todayData.total) return '0.0'
   return ((value / statistics.todayData.total) * 100).toFixed(1)
 }
+
+const stats = computed(() => {
+  const filtered = percent(statistics.todayData.total - statistics.todayData.success)
+  const repeat = percent(statistics.todayData.repeat)
+  const inactive = percent(statistics.todayData.activityFilter)
+  return [
+    {
+      en: 'Scanned',
+      label: '岗位总数',
+      value: String(statistics.todayData.total),
+      unit: '份',
+      width: '100%',
+      color: 'var(--cr-fg2)',
+      help: '统计当天脚本扫描过的所有岗位',
+    },
+    {
+      en: 'Filtered',
+      label: '过滤比例',
+      value: filtered,
+      unit: '%',
+      width: `${filtered}%`,
+      color: 'var(--cr-acc)',
+      help: '统计当天岗位过滤的比例,被过滤/总数',
+    },
+    {
+      en: 'Repeat',
+      label: '重复比例',
+      value: repeat,
+      unit: '%',
+      width: `${repeat}%`,
+      color: 'var(--cr-info)',
+      help: '统计当天刷到了多少处理过的岗位,重复/总数',
+    },
+    {
+      en: 'Inactive',
+      label: '不活跃比例',
+      value: inactive,
+      unit: '%',
+      width: `${inactive}%`,
+      color: 'var(--cr-err)',
+      help: '统计当天岗位中的活跃情况,不活跃/总数',
+    },
+  ]
+})
+
+/** 近 7 天迷你柱状：statisticsData 是不含今天的历史，索引 0 最近。 */
+const spark = computed(() => {
+  const history = statistics.statisticsData.value
+  const days = [
+    ...Array.from({ length: 6 }, (_, i) => history[5 - i]).map((item) => ({
+      date: item?.date ?? '',
+      value: item?.success ?? 0,
+    })),
+    { date: statistics.todayData.date, value: statistics.todayData.success },
+  ]
+  const peak = Math.max(1, ...days.map((day) => day.value))
+  return days.map((day, index) => ({
+    ...day,
+    height: `${Math.max(2, Math.round((day.value / peak) * 100))}%`,
+    color: index === days.length - 1 ? 'var(--cr-acc)' : 'var(--cr-line2)',
+  }))
+})
 </script>
 
 <template>
-  <div class="flex gap-2 flex-col">
+  <div class="console">
     <Alert
       id="config-statistics"
       description="数据并不完全准确；每批投递数量只控制本插件单批暂停点，BOSS 平台限制由平台自身处理。"
@@ -132,36 +177,43 @@ function percent(value: number) {
       title="正在加载配置"
       description="配置、模型和统计数据就绪前不会开始投递。"
     />
-    <div
-      v-else-if="initializationFailed"
-      role="alert"
-      class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm"
-    >
-      <div>
-        <p class="font-medium text-error">配置加载失败，已阻止开始投递</p>
-        <p class="text-muted">
+    <div v-else-if="initializationFailed" role="alert" class="console-notice is-error">
+      <span class="console-notice-stripe" />
+      <div class="console-notice-body">
+        <p class="console-notice-title">配置加载失败，已阻止开始投递</p>
+        <p class="console-notice-desc">
           {{ ctx.initializationError.value || '请检查扩展状态后重试。' }}
         </p>
       </div>
-      <UButton color="error" variant="soft" @click="retryInitialization">重新加载</UButton>
+      <button
+        type="button"
+        class="cr-b console-notice-action is-error"
+        @click="retryInitialization"
+      >
+        重新加载
+      </button>
     </div>
     <div
       v-if="stopReason"
       :role="stopReason.severity === 'error' ? 'alert' : 'status'"
-      class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-default bg-elevated px-4 py-3 text-sm"
+      class="console-notice"
+      :class="stopReason.severity === 'error' ? 'is-error' : 'is-warn'"
       data-testid="workflow-stop-reason"
     >
-      <div>
-        <p class="font-medium text-default">{{ stopReason.title }}</p>
-        <p class="text-muted">{{ stopReason.message }}</p>
+      <span class="console-notice-stripe" />
+      <div class="console-notice-body">
+        <p class="console-notice-title">{{ stopReason.title }}</p>
+        <p class="console-notice-desc">{{ stopReason.message }}</p>
       </div>
-      <UButton
-        :color="stopReason.severity === 'error' ? 'error' : 'primary'"
-        variant="soft"
+      <button
+        type="button"
+        class="cr-b console-notice-action"
+        :class="stopReason.severity === 'error' ? 'is-error' : ''"
+        :disabled="startBlockedByStopReason && stopReason.code !== 'context_invalidated'"
         @click="handleStopReasonAction"
       >
         {{ stopReasonActionLabel }}
-      </UButton>
+      </button>
     </div>
     <UAlert
       v-if="ctx.workflow?.recoveryMessage.value"
@@ -173,99 +225,48 @@ function percent(value: number) {
       :description="ctx.workflow.recoveryMessage.value"
       data-testid="workflow-recovery-status"
     />
-    <div
-      v-if="conf.configLevel.intermediate"
-      class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5"
-    >
-      <div data-help="统计当天脚本扫描过的所有岗位">
-        <div class="text-sm text-gray-500">岗位总数：</div>
-        <div class="text-2xl font-semibold">
-          {{ statistics.todayData.total }} <span class="text-sm text-gray-400">份</span>
+
+    <div v-if="conf.configLevel.intermediate" class="console-stats">
+      <div v-for="stat in stats" :key="stat.en" class="console-stat" :data-help="stat.help">
+        <span class="cr-eyebrow">{{ stat.en }}</span>
+        <span class="console-stat-label">{{ stat.label }}</span>
+        <span class="console-stat-value">
+          {{ stat.value }}<i>{{ stat.unit }}</i>
+        </span>
+        <div class="console-stat-track">
+          <div class="console-stat-fill" :style="{ width: stat.width, background: stat.color }" />
         </div>
       </div>
-      <div data-help="统计当天岗位过滤的比例,被过滤/总数">
-        <div class="text-sm text-gray-500">过滤比例：</div>
-        <div class="text-2xl font-semibold">
-          {{ percent(statistics.todayData.total - statistics.todayData.success) }}
-          <span class="text-sm text-gray-400">%</span>
+
+      <div class="console-stat console-cycle" :data-help="statisticCycleData[statisticCycle].help">
+        <div class="console-cycle-seg">
+          <button
+            v-for="(item, index) in statisticCycleData"
+            :key="item.label"
+            type="button"
+            class="cr-seg console-cycle-btn"
+            :data-active="statisticCycle === index"
+            :aria-pressed="statisticCycle === index"
+            @click="statisticCycle = index"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <div class="console-cycle-value">
+          <span class="console-stat-value is-accent">
+            {{ cycle + statistics.todayData.success }}<i>份</i>
+          </span>
+          <span class="console-cycle-help">{{ statisticCycleData[statisticCycle].help }}</span>
+        </div>
+        <div class="console-spark">
+          <span
+            v-for="(bar, index) in spark"
+            :key="index"
+            :title="`${bar.date || '—'}：${bar.value} 份`"
+            :style="{ height: bar.height, background: bar.color }"
+          />
         </div>
       </div>
-      <div data-help="统计当天刷到了多少处理过的岗位,重复/总数">
-        <div class="text-sm text-gray-500">重复比例：</div>
-        <div class="text-2xl font-semibold">
-          {{ percent(statistics.todayData.repeat) }}
-          <span class="text-sm text-gray-400">%</span>
-        </div>
-      </div>
-      <div data-help="统计当天岗位中的活跃情况,不活跃/总数">
-        <div class="text-sm text-gray-500">活跃比例：</div>
-        <div class="text-2xl font-semibold">
-          {{ percent(statistics.todayData.activityFilter) }}
-          <span class="text-sm text-gray-400">%</span>
-        </div>
-      </div>
-      <div :data-help="statisticCycleData[statisticCycle].help">
-        <UDropdownMenu
-          :items="
-            statisticCycleData.map((item, index) => ({
-              label: item.label,
-              onSelect: () => (statisticCycle = index),
-            }))
-          "
-        >
-          <div class="text-sm text-gray-500 cursor-pointer flex items-center gap-1">
-            {{ statisticCycleData[statisticCycle].label }}:
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 1024 1024">
-              <path
-                fill="currentColor"
-                d="M831.872 340.864 512 652.672 192.128 340.864a30.592 30.592 0 0 0-42.752 0 29.12 29.12 0 0 0 0 41.6L489.664 714.24a32 32 0 0 0 44.672 0l340.288-331.712a29.12 29.12 0 0 0 0-41.728 30.592 30.592 0 0 0-42.752 0z"
-              />
-            </svg>
-          </div>
-        </UDropdownMenu>
-        <div class="text-2xl font-semibold">
-          {{ cycle + statistics.todayData.success }} <span class="text-sm text-gray-400">份</span>
-        </div>
-      </div>
-    </div>
-    <div class="flex flex-row gap-2 items-center justify-center">
-      <UFieldGroup>
-        <UButton
-          color="primary"
-          data-help="点击开始就会开始投递"
-          :loading="initializationLoading || ctx.workflowRunning.value"
-          :disabled="
-            !ctx.initializationReady.value || startBlockedByStopReason || ctx.workflowRunning.value
-          "
-          @click="ctx.start()"
-        >
-          {{ startLabel }}
-        </UButton>
-        <UButton
-          v-if="ctx.workflow?.status.value === 'stop'"
-          color="warning"
-          data-help="重置已被筛选的岗位，开始将重新处理"
-          @click="ctx.reset()"
-        >
-          重置筛选
-        </UButton>
-        <UButton
-          v-if="ctx.workflowRunning.value"
-          color="warning"
-          data-help="暂停后应该能继续"
-          @click="ctx.stop()"
-        >
-          暂停
-        </UButton>
-      </UFieldGroup>
-      <UProgress
-        data-help="本批成功投递进度，达到每批投递数量后会暂停"
-        class="flex-1"
-        :value="batchProgress"
-      />
-      <span class="text-sm text-gray-500">{{ batchSubmitted }}/{{ batchLimit }}</span>
     </div>
   </div>
 </template>
-
-<style lang="scss"></style>

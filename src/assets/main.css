@@ -1,15 +1,302 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
+@import './components.css';
 @plugin "@tailwindcss/typography";
 
-body {
-  background-color: unset;
+/* ---------------------------------------------------------------------------
+ * 控制室 Control Room 设计令牌
+ *
+ * 单一来源：所有颜色都走这一层 CSS 变量，深浅主题只换变量值。
+ * 面板运行在 shadow DOM 里，:root 会被 vite-plugin-tailwind-shadowdom 改写成
+ * :host；再带上 #app-root 兜底，保证改写前后都能命中。
+ * ------------------------------------------------------------------------ */
+
+:root,
+#app-root {
+  --cr-bg: #0d1920;
+  --cr-bg2: #081217;
+  --cr-surf: #12212b;
+  --cr-surf2: #172c38;
+  --cr-surf3: #1e3949;
+  --cr-line: #26414f;
+  --cr-line2: #365667;
+  --cr-fg: #e8f0f3;
+  --cr-fg2: #9fb6c1;
+  /* 稿子里的 #66808D 在 --surf2 上只有 3.46:1。眉题、说明文字都用这一档，
+   * 所以提亮到在 surf / surf2 / surf3 三种底色上都过 4.5:1。 */
+  --cr-fg3: #8da2ac;
+  --cr-acc: #f5a524;
+  --cr-acc2: #ffc15e;
+  --cr-acc-ink: #12212b;
+  --cr-acc-soft: rgb(245 165 36 / 10%);
+  --cr-ok: #4fd98b;
+  --cr-ok-soft: rgb(79 217 139 / 10%);
+  --cr-err: #ff6b5a;
+  --cr-err-soft: rgb(255 107 90 / 10%);
+  --cr-info: #5fb8ff;
+  --cr-info-soft: rgb(95 184 255 / 10%);
+  --cr-ai: #b98bff;
+  --cr-ai-soft: rgb(185 139 255 / 10%);
+
+  /* “柔和底 + 同色文字”的状态标记里，文字用 -on 变量。
+   * 深色主题下与主色同值；浅色主题下压暗，保证 4.5:1 对比度。 */
+  --cr-acc-on: var(--cr-acc);
+  --cr-ok-on: var(--cr-ok);
+  --cr-err-on: var(--cr-err);
+  --cr-info-on: var(--cr-info);
+  --cr-ai-on: var(--cr-ai);
+  --cr-mute-on: var(--cr-fg2);
+
+  /* Space Grotesk / Noto Sans SC / JetBrains Mono 若本机可用则优先，
+   * 内容脚本不联网拉取字体，其余情况退回系统字体。 */
+  --cr-ui:
+    'Space Grotesk', 'Noto Sans SC', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --cr-zh:
+    'Noto Sans SC', 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --cr-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+[data-cr-theme='light'] {
+  --cr-bg: #e4e9e8;
+  --cr-bg2: #d5dcdb;
+  --cr-surf: #fff;
+  --cr-surf2: #f3f6f6;
+  --cr-surf3: #e7ecec;
+  --cr-line: #d3dbdb;
+  --cr-line2: #b4c1c2;
+  --cr-fg: #12212b;
+  --cr-fg2: #4e626c;
+  --cr-fg3: #5b6c76;
+  /* 稿子里的浅色琥珀 #B86E06 在白底上只有 3.98:1，改用稿子自己的 --acc2 档。 */
+  --cr-acc: #94570a;
+  --cr-acc2: #7a480f;
+  --cr-acc-ink: #fff;
+  --cr-acc-soft: rgb(184 110 6 / 12%);
+  --cr-ok: #17794c;
+  --cr-ok-soft: rgb(23 121 76 / 12%);
+  --cr-err: #bc3325;
+  --cr-err-soft: rgb(188 51 37 / 12%);
+  --cr-info: #15669f;
+  --cr-info-soft: rgb(21 102 159 / 12%);
+  --cr-ai: #6c3fc4;
+  --cr-ai-soft: rgb(108 63 196 / 12%);
+
+  --cr-acc-on: #7a480f;
+  --cr-ok-on: #10603c;
+  --cr-err-on: #96271b;
+  --cr-info-on: #124f7c;
+  --cr-ai-on: #55309a;
+  --cr-mute-on: var(--cr-fg2);
+}
+
+/* ---------------------------------------------------------------------------
+ * Nuxt UI 桥接层
+ *
+ * Nuxt UI 4 的组件全部读 --ui-* 变量，把它们指到上面的控制室令牌，
+ * 所有 UButton / UModal / UTable / USlideover 就自动进入同一套配色。
+ *
+ * 注意选择器必须包含 [data-cr-theme]：自定义属性是在“声明它的那个元素”上
+ * 完成 var() 求值的，求值结果再往下继承。浅色令牌声明在带 data-cr-theme 的
+ * 外壳上，如果桥接层只写在 :host 上，--ui-bg 会在 :host 上被解析成深色值并
+ * 一路继承下去，导致切到浅色后所有 Nuxt UI 组件仍是深色。
+ * ------------------------------------------------------------------------ */
+
+:root,
+#app-root,
+[data-cr-theme] {
+  --ui-radius: 0.5rem;
+
+  --ui-bg: var(--cr-surf);
+  --ui-bg-muted: var(--cr-surf2);
+  --ui-bg-elevated: var(--cr-surf2);
+  --ui-bg-accented: var(--cr-surf3);
+  --ui-bg-inverted: var(--cr-fg);
+
+  --ui-border: var(--cr-line);
+  --ui-border-muted: var(--cr-line);
+  --ui-border-accented: var(--cr-line2);
+  --ui-border-inverted: var(--cr-fg);
+
+  --ui-text-dimmed: var(--cr-fg3);
+  --ui-text-muted: var(--cr-fg3);
+  --ui-text-toned: var(--cr-fg2);
+  --ui-text: var(--cr-fg2);
+  --ui-text-highlighted: var(--cr-fg);
+  --ui-text-inverted: var(--cr-acc-ink);
+
+  --ui-primary: var(--cr-acc);
+  --ui-secondary: var(--cr-ai);
+  --ui-success: var(--cr-ok);
+  --ui-info: var(--cr-info);
+  --ui-warning: var(--cr-acc);
+  --ui-error: var(--cr-err);
+
+  --ui-color-primary-50: #fff8ec;
+  --ui-color-primary-100: #ffeccb;
+  --ui-color-primary-200: #ffd894;
+  --ui-color-primary-300: #ffc15e;
+  --ui-color-primary-400: #f5a524;
+  --ui-color-primary-500: #e08f0f;
+  --ui-color-primary-600: #b86e06;
+  --ui-color-primary-700: #94570a;
+  --ui-color-primary-800: #7a480f;
+  --ui-color-primary-900: #663c12;
+  --ui-color-primary-950: #3b2007;
+
+  --ui-color-secondary-50: #f6f1ff;
+  --ui-color-secondary-100: #ede4ff;
+  --ui-color-secondary-200: #dcccff;
+  --ui-color-secondary-300: #c7a9ff;
+  --ui-color-secondary-400: #b98bff;
+  --ui-color-secondary-500: #a066f5;
+  --ui-color-secondary-600: #8b47e3;
+  --ui-color-secondary-700: #6c3fc4;
+  --ui-color-secondary-800: #5c36a2;
+  --ui-color-secondary-900: #4c2f84;
+  --ui-color-secondary-950: #2f1a59;
+
+  --ui-color-success-50: #ecfdf3;
+  --ui-color-success-100: #d2f9e1;
+  --ui-color-success-200: #a7f0c6;
+  --ui-color-success-300: #6fe3a6;
+  --ui-color-success-400: #4fd98b;
+  --ui-color-success-500: #22c26e;
+  --ui-color-success-600: #16a05a;
+  --ui-color-success-700: #17794c;
+  --ui-color-success-800: #145f3e;
+  --ui-color-success-900: #114e35;
+  --ui-color-success-950: #052e1d;
+
+  --ui-color-info-50: #eff8ff;
+  --ui-color-info-100: #dbeeff;
+  --ui-color-info-200: #bee1ff;
+  --ui-color-info-300: #8fcdff;
+  --ui-color-info-400: #5fb8ff;
+  --ui-color-info-500: #369bf5;
+  --ui-color-info-600: #1f7cd8;
+  --ui-color-info-700: #1a63ae;
+  --ui-color-info-800: #1b5389;
+  --ui-color-info-900: #1c476f;
+  --ui-color-info-950: #132c46;
+
+  --ui-color-warning-50: #fff8ec;
+  --ui-color-warning-100: #ffeccb;
+  --ui-color-warning-200: #ffd894;
+  --ui-color-warning-300: #ffc15e;
+  --ui-color-warning-400: #f5a524;
+  --ui-color-warning-500: #e08f0f;
+  --ui-color-warning-600: #b86e06;
+  --ui-color-warning-700: #94570a;
+  --ui-color-warning-800: #7a480f;
+  --ui-color-warning-900: #663c12;
+  --ui-color-warning-950: #3b2007;
+
+  --ui-color-error-50: #fff1ef;
+  --ui-color-error-100: #ffe0dc;
+  --ui-color-error-200: #ffc5be;
+  --ui-color-error-300: #ff9e92;
+  --ui-color-error-400: #ff6b5a;
+  --ui-color-error-500: #f04434;
+  --ui-color-error-600: #d02e20;
+  --ui-color-error-700: #ab2618;
+  --ui-color-error-800: #8d2317;
+  --ui-color-error-900: #75231a;
+  --ui-color-error-950: #400e08;
+
+  --ui-color-neutral-50: #f3f6f6;
+  --ui-color-neutral-100: #e7ecec;
+  --ui-color-neutral-200: #d3dbdb;
+  --ui-color-neutral-300: #b4c1c2;
+  --ui-color-neutral-400: #7e9099;
+  --ui-color-neutral-500: #66808d;
+  --ui-color-neutral-600: #4e626c;
+  --ui-color-neutral-700: #365667;
+  --ui-color-neutral-800: #26414f;
+  --ui-color-neutral-900: #172c38;
+  --ui-color-neutral-950: #0d1920;
 }
 
 @theme {
   --color-help-brand: #3eaf7c;
   --color-help-bg: rgba(62, 175, 124, 0.2);
 }
+
+body {
+  background-color: unset;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cr-line2) transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * 动效
+ * ------------------------------------------------------------------------ */
+
+@keyframes cr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+}
+
+@keyframes cr-hazard {
+  to {
+    background-position: 56px 0;
+  }
+}
+
+@keyframes cr-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes cr-slide {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes cr-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes cr-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 控制室通用组件
+ * ------------------------------------------------------------------------ */
 
 @layer components {
   .overlay-box {
@@ -21,10 +308,211 @@ body {
     transition-duration: 150ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
-}
 
-* {
-  scrollbar-width: thin;
+  /* 面板外壳 */
+  .cr-panel {
+    border: 1px solid var(--cr-line);
+    border-radius: 14px;
+    background: var(--cr-surf);
+    box-shadow: 0 24px 60px -24px rgb(0 0 0 / 55%);
+    overflow: hidden;
+    animation: cr-rise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  }
+
+  /* 小标题：10px 等宽 + 字距，用于每个区块的英文眉题 */
+  .cr-eyebrow {
+    font: 500 10px/1 var(--cr-mono);
+    letter-spacing: 0.16em;
+    color: var(--cr-fg3);
+    text-transform: uppercase;
+  }
+
+  .cr-num {
+    font-family: var(--cr-mono);
+    letter-spacing: -0.02em;
+  }
+
+  /* 危险条纹：达到上限、首次使用等需要拦一下的地方 */
+  .cr-hazard {
+    background: repeating-linear-gradient(45deg, var(--cr-acc) 0 10px, transparent 10px 20px);
+    background-size: 28.3px 28.3px;
+    animation: cr-hazard 2s linear infinite;
+  }
+
+  /* 自定义滚动条 */
+  .cr-sc::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  .cr-sc::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .cr-sc::-webkit-scrollbar-thumb {
+    background: var(--cr-line2);
+    border-radius: 9px;
+  }
+
+  .cr-sc::-webkit-scrollbar-thumb:hover {
+    background: var(--cr-acc);
+  }
+
+  /* 导航胶囊 / 标签页 */
+  .cr-nav {
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    color: var(--cr-fg2);
+    border: 1px solid transparent;
+    transition: all 0.18s ease;
+  }
+
+  .cr-nav[data-active='true'] {
+    background: var(--cr-acc);
+    color: var(--cr-acc-ink);
+    border-color: var(--cr-acc);
+  }
+
+  .cr-nav[data-active='false']:hover {
+    background: var(--cr-surf3);
+    color: var(--cr-fg);
+    border-color: var(--cr-line2);
+  }
+
+  .cr-nav .cr-badge {
+    background: var(--cr-surf3);
+    color: var(--cr-fg3);
+  }
+
+  .cr-nav .cr-badge[data-tone='warn'] {
+    background: var(--cr-acc-soft);
+    color: var(--cr-acc);
+  }
+
+  .cr-nav .cr-badge[data-tone='ai'] {
+    background: var(--cr-ai-soft);
+    color: var(--cr-ai);
+  }
+
+  .cr-nav[data-active='true'] .cr-badge {
+    background: rgb(0 0 0 / 28%);
+    color: var(--cr-acc-ink);
+  }
+
+  /* 分段控件：统计周期、日志筛选 */
+  .cr-seg {
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    color: var(--cr-fg3);
+    border: 1px solid var(--cr-line);
+    transition: all 0.18s ease;
+  }
+
+  .cr-seg[data-active='true'] {
+    background: var(--cr-acc-soft);
+    color: var(--cr-acc);
+    border-color: var(--cr-acc);
+  }
+
+  .cr-seg[data-active='false']:hover {
+    border-color: var(--cr-line2);
+    color: var(--cr-fg);
+  }
+
+  /* 日志行 */
+  .cr-row {
+    background: transparent;
+    transition: background 0.16s ease;
+  }
+
+  .cr-row[data-open='true'],
+  .cr-row:hover {
+    background: var(--cr-surf2);
+  }
+
+  /* 开关 */
+  .cr-tog {
+    position: relative;
+    flex: 0 0 auto;
+    width: 38px;
+    height: 21px;
+    padding: 0;
+    border-radius: 999px;
+    background: var(--cr-surf3);
+    border: 1px solid var(--cr-line2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .cr-tog > i {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    display: block;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--cr-fg3);
+    transition:
+      transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1),
+      background 0.2s ease;
+  }
+
+  .cr-tog[data-on='true'] {
+    background: var(--cr-acc);
+    border-color: var(--cr-acc);
+  }
+
+  .cr-tog[data-on='true'] > i {
+    transform: translateX(18px);
+    background: var(--cr-acc-ink);
+  }
+
+  .cr-tog:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* 输入框 */
+  .cr-i {
+    border: 0;
+    background: transparent;
+    color: var(--cr-fg);
+    outline: none;
+  }
+
+  .cr-i::placeholder {
+    color: var(--cr-fg3);
+  }
+
+  .cr-field {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--cr-line2);
+    border-radius: 8px;
+    background: var(--cr-surf);
+    overflow: hidden;
+    transition: border-color 0.18s ease;
+  }
+
+  .cr-field:focus-within {
+    border-color: var(--cr-acc);
+  }
+
+  .cr-b:focus-visible,
+  .cr-nav:focus-visible,
+  .cr-seg:focus-visible,
+  .cr-tog:focus-visible {
+    outline: 2px solid var(--cr-acc);
+    outline-offset: 2px;
+  }
+
+  .cr-b:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
 }
 
 [data-help][tabindex='0']:focus-visible {
@@ -32,8 +520,9 @@ body {
   outline-offset: 3px;
 }
 
-/* https://css-tricks.com/ */
-/* https://uiverse.io/Subaashbala/polite-newt-9 */
+/* ---------------------------------------------------------------------------
+ * 岗位队列
+ * ------------------------------------------------------------------------ */
 
 .boss-helper-card {
   position: relative;
@@ -44,29 +533,13 @@ body {
 
 .card-grid {
   display: flex;
-  gap: 1rem;
+  gap: 14px;
   margin: 0;
   position: relative;
   overflow-x: auto;
-  scrollbar-color: #c6c6c6 #e9e9e9;
   scrollbar-gutter: stable;
-  padding: 1.5rem 0.25rem 2.5rem;
-  color: #000;
+  padding: 4px 2px 16px;
   -webkit-overflow-scrolling: touch;
-  &::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: #434343;
-    border-radius: 10px;
-    box-shadow:
-      inset 2px 2px 2px hsla(0, 0%, 100%, 0.25),
-      inset -2px -2px 2px rgba(0, 0, 0, 0.25);
-  }
-  &::-webkit-scrollbar-track {
-    background: linear-gradient(90deg, #434343, #434343 1px, #262626 0, #262626);
-  }
 }
 
 .card-grid-overlay {
@@ -80,7 +553,7 @@ body {
   transform: translateZ(0);
   backdrop-filter: blur(15px);
   -webkit-backdrop-filter: blur(15px);
-  background-color: #ffffff20;
+  background-color: rgb(13 25 32 / 25%);
   pointer-events: none;
   -webkit-mask-image: radial-gradient(
     circle var(--r) at var(--x) var(--y),
@@ -91,189 +564,146 @@ body {
   transition: -webkit-mask-image 0.2s ease;
 }
 
-html.dark {
-  .card-grid {
-    scrollbar-color: #666 #201c29;
-    color: #fff;
-    &::-webkit-scrollbar-thumb {
-      background: #434343;
-      box-shadow:
-        inset 2px 2px 2px hsla(0, 0%, 100%, 0.25),
-        inset -2px -2px 2px rgba(0, 0, 0, 0.25);
-    }
-    &::-webkit-scrollbar-track {
-      background: linear-gradient(90deg, #434343, #434343 1px, #262626 0, #262626);
-    }
-  }
-}
-
 .job-card {
-  --state-background: #4b5563;
-  --state-foreground: #fff;
-  --state-show: block;
+  --state-color: var(--cr-fg3);
+  --state-soft: var(--cr-surf3);
+  --state-show: flex;
 
-  padding: 1.5rem;
-  border-radius: 16px;
-  background: linear-gradient(85deg, #f2eeee, #eff0f6);
-  color: #000;
+  flex: 0 0 288px;
+  box-sizing: border-box;
+  min-width: 288px;
+  max-width: 288px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--cr-line);
+  border-radius: 12px;
+  background: var(--cr-surf2);
+  color: var(--cr-fg);
+  animation: cr-rise 0.4s ease both;
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-  margin: 0;
-  position: relative;
-  flex: 0 0 min(320px, calc(100vw - 3rem));
-  min-width: min(280px, calc(100vw - 3rem));
-  max-width: 320px;
-  min-height: 28rem;
-  max-height: 32rem;
-  border: 2px solid transparent;
-  box-shadow: 0 0.5rem 1.25rem rgb(61 69 80 / 15%);
-  .card-status {
-    position: absolute;
-    display: var(--state-show);
-    border-radius: 30px;
-    border-bottom-left-radius: 0;
-    border-top-left-radius: 0;
-    background-color: var(--state-background);
-    color: var(--state-foreground);
-    padding: 7px 17px;
-    text-wrap: nowrap;
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 5px;
-    left: -6px;
-    bottom: -14px;
-    transition: all 0.25s ease;
-    box-shadow: 1px -7px 12px -2px rgb(167 167 167 / 40%);
-  }
-  &::after {
-    position: absolute;
-    content: '';
-    display: var(--state-show);
-    left: -6px;
-    bottom: 18px;
-    width: 0;
-    height: 0;
-    border-left: 6px solid transparent;
-    border-right: 0px solid transparent;
-    border-bottom: 10px solid oklch(from var(--state-background) calc(l * 0.75) c h);
-  }
-  .card-tag {
-    display: block;
-    margin: 0 0 0.25rem;
-    color: #6a6868;
-    font-size: 0.7rem;
-  }
-  .card-title {
-    font-size: 1.2rem;
-    margin: 0 0 8px;
-    &:hover {
-      color: #409eff;
-    }
-  }
-  .card-salary {
-    font-size: 1.1rem;
-    margin: 0 0 1rem;
-    color: #a32116;
-  }
-  .card-footer {
-    -webkit-margin-before: auto;
-    margin-block-start: auto;
-    padding: 5px 0;
-  }
-  .active-time-tag {
-    padding: 0.5rem 0;
-    display: flex;
-    justify-content: flex-start;
-  }
-  .card-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    margin-right: 0.5rem;
-  }
-  .author-row {
-    display: grid;
-    grid-template-columns: 40px 1fr;
-    gap: 0.5rem;
-    align-items: center;
-    color: #595959;
-    line-height: 1.3;
-    padding-top: 0.5rem;
-    .company-name {
-      color: #000;
-    }
-  }
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1),
+    border-color 0.22s ease;
 
   &:focus-within,
   &.job-card-hover:hover {
-    border-color: #0f766e;
-    box-shadow: 0 0.75rem 1.5rem rgb(15 118 110 / 22%);
+    border-color: var(--cr-acc);
+    transform: translateY(-3px);
+  }
+
+  &.job-card-hover:hover .card-title {
+    color: var(--cr-acc);
+  }
+
+  .card-status {
+    display: var(--state-show);
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    background: var(--state-soft);
+    border-bottom: 1px solid var(--cr-line);
+    font: 700 10px/1 var(--cr-mono);
+    letter-spacing: 0.14em;
+    color: var(--state-color);
+    text-transform: uppercase;
+  }
+
+  .card-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 11px;
+    padding: 15px 16px;
+    min-width: 0;
+  }
+
+  .card-title {
+    display: block;
+    margin: 0;
+    font: 600 15px/1.35 var(--cr-zh);
+    color: var(--cr-fg);
+    text-decoration: none;
+    transition: color 0.18s ease;
+  }
+
+  .card-tag {
+    display: block;
+    margin-top: 3px;
+    font: 400 11px/1.5 var(--cr-zh);
+    color: var(--cr-fg3);
+  }
+
+  .card-salary {
+    margin: 0;
+    font: 700 19px/1 var(--cr-mono);
+    letter-spacing: -0.01em;
+    color: var(--cr-acc);
+  }
+
+  .card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    font: 400 12px/1.6 var(--cr-zh);
+    color: var(--cr-fg2);
+  }
+
+  .card-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-block-start: auto;
+    padding-top: 11px;
+    border-top: 1px solid var(--cr-line);
+  }
+
+  .avatar {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: var(--cr-line);
+    object-fit: cover;
+  }
+
+  .company-name {
+    display: block;
+    font: 500 12px/1.3 var(--cr-zh);
+    color: var(--cr-fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .company-addr {
+    display: block;
+    font: 400 10px/1.4 var(--cr-zh);
+    color: var(--cr-fg3);
   }
 
   .card-details-toggle {
     min-height: 2rem;
-    border: 0;
-    border-radius: 0.375rem;
-    background: #e2e8f0;
-    color: #1e293b;
+    border: 1px solid var(--cr-line2);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--cr-fg2);
     cursor: pointer;
-    font: inherit;
-    font-weight: 600;
-    margin-top: 0.5rem;
-    padding: 0.375rem 0.75rem;
+    font: 500 12px/1 var(--cr-zh);
+    padding: 0.5rem 0.75rem;
     text-align: left;
+    transition: all 0.18s ease;
+  }
+
+  .card-details-toggle:hover {
+    border-color: var(--cr-acc);
+    color: var(--cr-acc);
   }
 
   .card-details-toggle:focus-visible {
-    outline: 3px solid #0e7490;
+    outline: 2px solid var(--cr-acc);
     outline-offset: 2px;
-  }
-}
-
-html.dark {
-  .job-card {
-    background: linear-gradient(85deg, #434343, #262626);
-    color: #fff;
-    box-shadow: -2rem 0 1rem -2rem #000;
-    .card-title {
-      color: #fff;
-      &:hover {
-        color: #409eff;
-      }
-    }
-    .card-status {
-      box-shadow: 1px -7px 12px -2px rgb(167 167 167 / 40%);
-    }
-
-    .card-tag {
-      color: #b4b4b4;
-    }
-
-    .card-salary {
-      color: #ff9185;
-    }
-
-    .author-row {
-      color: #d4d4d4;
-
-      .company-name {
-        color: #fff;
-      }
-    }
-
-    .card-details-toggle {
-      background: #334155;
-      color: #fff;
-    }
   }
 }
 
@@ -288,7 +718,6 @@ html.dark {
 
   .overlay-box,
   .job-card,
-  .job-card .card-status,
   .card-grid-overlay {
     scroll-behavior: auto;
     transition: none;

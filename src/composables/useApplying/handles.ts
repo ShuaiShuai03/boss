@@ -430,6 +430,8 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         if (!res) {
           return taskResult.skip(`AI筛选低置信度跳过: ${message}`)
         }
+        // 岗位卡片上的匹配分环读这个值，避免在渲染层重复解析模型输出
+        ;(data.state as any).aiFilteringRating = rating
         if (rating < (ctx.helper.conf.formData.aiFiltering.score ?? 10)) {
           return taskResult.skip(message)
         }

@@ -169,6 +169,8 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
   const errorMessage = ref<string | null>(null)
   const stopReason = shallowRef<WorkflowStopReason | null>(null)
   const recoveryMessage = ref<string | null>(null)
+  /** 运行舱要实时显示熔断读数，所以连续失败次数提升为可观察状态。 */
+  const consecutiveFailures = ref(0)
   const pipeline = shallowRef<Task<C, T, S>[]>([])
   const nodes = shallowRef<
     Array<{
@@ -493,7 +495,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     assertExecutionActive(generation)
 
     let stepMsg = ''
-    let consecutiveFailures = 0
+    consecutiveFailures.value = 0
     errorMessage.value = null
     stopReason.value = null
     recoveryMessage.value = null
@@ -596,16 +598,16 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
             assertExecutionActive(generation)
           }
           if (result?.status === 'error') {
-            consecutiveFailures += 1
-            if (consecutiveFailures >= maxConsecutiveFailures()) {
+            consecutiveFailures.value += 1
+            if (consecutiveFailures.value >= maxConsecutiveFailures()) {
               status.value = 'stop'
-              stepMsg = `连续失败 ${consecutiveFailures} 次，已自动暂停`
+              stepMsg = `连续失败 ${consecutiveFailures.value} 次，已自动暂停`
               stopReason.value = createWorkflowStopReason('consecutive_failures', stepMsg)
               helper.logs.info('连续失败暂停', stepMsg)
               break
             }
           } else {
-            consecutiveFailures = 0
+            consecutiveFailures.value = 0
           }
           if (batchIsFull()) {
             status.value = 'stop'
@@ -835,6 +837,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     errorMessage,
     stopReason,
     recoveryMessage,
+    consecutiveFailures,
     pipeline,
     nodes,
     ctx: helper,

@@ -692,20 +692,23 @@ try {
   const page = await context.newPage()
   await page.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=normal')
   const host = await waitForBossUi(page)
-  const onboarding = host.getByRole('heading', { name: '首次安全使用清单', exact: true })
+  const onboarding = host.getByRole('heading', {
+    name: '开始前，先过一遍这三件事',
+    exact: true,
+  })
   await onboarding.waitFor()
-  const onboardingText = await onboarding.locator('..').innerText()
-  assert.match(onboardingText, /自己的 BOSS 账号/)
-  assert.match(onboardingText, /筛选.*配置/)
-  assert.match(onboardingText, /较小的每批数量/)
-  await host.getByRole('button', { name: '我已了解', exact: true }).click()
+  const onboardingText = await host.locator('.cr-onboard').innerText()
+  assert.match(onboardingText, /自己的账号/)
+  assert.match(onboardingText, /筛选规则/)
+  assert.match(onboardingText, /少量岗位/)
+  await host.getByRole('button', { name: '我已了解，开始配置', exact: true }).click()
   await onboarding.waitFor({ state: 'hidden' })
   await host.getByRole('button', { name: '使用指南', exact: true }).click()
   await onboarding.waitFor()
   assert.equal(await page.evaluate(() => window.__bossFixture.detailSelections), 0)
-  await host.getByRole('button', { name: '我已了解', exact: true }).click()
+  await host.getByRole('button', { name: '我已了解，开始配置', exact: true }).click()
   await onboarding.waitFor({ state: 'hidden' })
-  await host.getByText('岗位总数：', { exact: true }).waitFor()
+  await host.getByText('岗位总数', { exact: true }).waitFor()
   assert.equal(
     await page.evaluate(() => document.querySelector('.page-job-wrapper').__vue__.jobList.length),
     1,
@@ -729,7 +732,7 @@ try {
   assert.equal(cardLayout.marginLeft, '0px')
   assert.match(cardLayout.scrollbarGutter, /stable/)
   assert.match(
-    await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(),
+    await host.getByText('岗位总数', { exact: true }).locator('..').innerText(),
     /7\s*份/,
   )
 
@@ -753,7 +756,8 @@ try {
   }
   await page.setViewportSize({ width: 1024, height: 900 })
 
-  await host.getByRole('tab', { name: '配置', exact: true }).click()
+  // 标签名带未保存/计数徽标时会进入无障碍名称，所以这里不做 exact 匹配
+  await host.getByRole('tab', { name: '规则' }).click()
   const deliveryLimit = host.getByRole('spinbutton', { name: '每批投递数量' })
   await deliveryLimit.waitFor()
   assert.ok(
@@ -791,7 +795,7 @@ try {
   assert.deepEqual(controlAudit.duplicateIds, [])
   assert.deepEqual(controlAudit.unnamedControls, [])
 
-  await host.getByRole('checkbox', { name: '帮助' }).click()
+  await host.getByRole('button', { name: '帮助', exact: true }).click()
   const helpTarget = host.locator('[data-help]:not([data-help="no-help"]):visible').first()
   await helpTarget.focus()
   assert.match(await helpTarget.getAttribute('aria-describedby'), /boss-helper-help-status/)
@@ -811,15 +815,12 @@ try {
     'none',
   )
 
-  await host.getByRole('tab', { name: 'AI', exact: true }).click()
+  await host.getByRole('tab', { name: 'AI' }).click()
   assert.ok(
     requestedBossChunks().some((name) => name.includes('boss-AI-')),
     'AI chunk was not loaded after opening the AI tab',
   )
-  const aiToggle = host
-    .locator('button[aria-pressed]')
-    .filter({ hasText: /已启用|已停用/ })
-    .first()
+  const aiToggle = host.getByRole('button', { name: '启用AI招呼语', exact: true })
   await aiToggle.waitFor()
   await assertNoPageOverflow(page, 512, 'AI tab at 200% zoom-equivalent width')
   await assertNoPageOverflow(page, 256, 'AI tab at 400% zoom-equivalent width')
@@ -838,10 +839,9 @@ try {
     true,
     'Help target rendered by an async tab is not keyboard focusable',
   )
-  assert.match(await aiToggle.innerText(), /已启用|已停用/)
   assert.match(await aiToggle.getAttribute('aria-pressed'), /^(true|false)$/)
-  await host.locator('button[aria-label^="配置"]').first().waitFor()
-  await host.getByRole('button', { name: '模型配置', exact: true }).click()
+  await host.getByRole('button', { name: '编辑提示词', exact: true }).first().waitFor()
+  await host.getByRole('button', { name: '+ 新建 / 管理模型', exact: true }).click()
   await host.getByRole('dialog', { name: 'Ai模型配置' }).waitFor()
   await host.getByRole('button', { name: '新建', exact: true }).click()
   await host.getByRole('dialog', { name: '创建AI模型' }).waitFor()
@@ -857,7 +857,7 @@ try {
     .getByRole('button', { name: '完成' })
     .click()
 
-  await host.getByRole('button', { name: '配置AI招呼语', exact: true }).click()
+  await host.getByRole('button', { name: '编辑提示词', exact: true }).first().click()
   const promptDialog = host.getByRole('dialog', { name: 'AI招呼语', exact: true })
   await promptDialog.waitFor()
   await promptDialog.locator('[aria-label="第 1 条提示词消息角色"]').waitFor()
@@ -881,7 +881,7 @@ try {
   await detailsButton.press('Space')
   assert.equal(await detailsButton.getAttribute('aria-expanded'), 'false')
 
-  await host.getByRole('tab', { name: '统计', exact: true }).click()
+  await host.getByRole('tab', { name: '控制台', exact: true }).click()
   await host.getByRole('button', { name: '开始', exact: true }).click()
   const stopReason = host.locator('[data-testid="workflow-stop-reason"]')
   await stopReason.waitFor()
@@ -894,7 +894,7 @@ try {
   )
   assert.equal(today.total, 8)
   assert.match(
-    await host.getByText('岗位总数：', { exact: true }).locator('..').innerText(),
+    await host.getByText('岗位总数', { exact: true }).locator('..').innerText(),
     /8\s*份/,
   )
   assert.equal(await page.evaluate(() => window.__bossFixture.detailSelections), 0)
@@ -907,21 +907,25 @@ try {
     contrastRatio(statusColors.foreground, statusColors.background) >= 4.5,
     `Job status contrast is below WCAG AA: ${JSON.stringify(statusColors)}`,
   )
+  // 卡片底色由主题变量决定，直接读实际计算值，避免把配色硬编码进断言
+  const cardBackground = await host
+    .locator('.job-card')
+    .first()
+    .evaluate((element) => getComputedStyle(element).backgroundColor)
   for (const [selector, label] of [
     ['.card-tag', 'job tag'],
     ['.card-salary', 'salary'],
-    ['.author-row', 'author'],
+    ['.company-name', 'company name'],
+    ['.company-addr', 'company address'],
   ]) {
     const foreground = await host
       .locator(selector)
       .first()
       .evaluate((element) => getComputedStyle(element).color)
-    for (const background of ['rgb(242, 238, 238)', 'rgb(239, 240, 246)']) {
-      assert.ok(
-        contrastRatio(foreground, background) >= 4.5,
-        `${label} contrast is below WCAG AA: ${foreground} on ${background}`,
-      )
-    }
+    assert.ok(
+      contrastRatio(foreground, cardBackground) >= 4.5,
+      `${label} contrast is below WCAG AA: ${foreground} on ${cardBackground}`,
+    )
   }
 
   await host.getByRole('button', { name: '对话', exact: true }).click()
