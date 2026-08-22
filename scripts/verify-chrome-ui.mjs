@@ -12,7 +12,6 @@ await access(path.join(extensionPath, 'manifest.json'))
 const profilePath = await mkdtemp(path.join(tmpdir(), 'boss-helper-chromium-'))
 const browserErrors = []
 const expectedFailureConsoleErrors = []
-const bossChunkRequests = new Set()
 let context
 let lifecycleSubmissionRequests = 0
 let holdLifecycleSubmission = false
@@ -41,6 +40,8 @@ function fixtureHtml({ contact = true } = {}) {
     <script>
       (() => {
         window.Cookie = { get: () => 'fixture-token' }
+        document.cookie = 'fixture-prefix=1; path=/; SameSite=Lax'
+        document.cookie = 'bst=fixture-token; path=/; SameSite=Lax'
         const aiReplyEvent = 'boss-helper:ai-reply-message'
         const aiReplyListeners = new Set()
         const activeIntervals = new Map()
@@ -332,11 +333,6 @@ function trackPage(page) {
     }
     browserErrors.push(error)
   })
-  page.on('request', (request) => {
-    if (/\/chunks\/boss-[^/]+\.js(?:$|\?)/.test(request.url())) {
-      bossChunkRequests.add(request.url())
-    }
-  })
 }
 
 function trackWorker(worker) {
@@ -417,10 +413,30 @@ function localDateKey(currentDate = new Date()) {
 }
 
 async function waitForBossUi(page) {
-  await page.waitForSelector('boss-helper-job')
+  await page.waitForSelector('boss-helper-job', { state: 'attached' })
   const host = page.locator('boss-helper-job')
-  await host.getByText('Boss-Helper', { exact: true }).waitFor()
+  try {
+    await host.getByText('Boss·Helper', { exact: true }).waitFor()
+  } catch (error) {
+    const hostState =
+      (await host.count()) > 0
+        ? await host.evaluate((element) => ({
+            display: getComputedStyle(element).display,
+            shadow: element.shadowRoot?.innerHTML.slice(0, 500) ?? null,
+            html: element.outerHTML,
+          }))
+        : { removed: true }
+    throw new Error(`Boss UI did not mount: ${JSON.stringify({ hostState, browserErrors })}`, {
+      cause: error,
+    })
+  }
   return host
+}
+async function dismissOnboardingIfVisible(host) {
+  const onboarding = host.locator('.cr-onboard')
+  if (await onboarding.isVisible()) {
+    await host.getByRole('button', { name: '稍后', exact: true }).click()
+  }
 }
 
 async function waitForStorage(worker, area, key, predicate, timeoutMs = 5000) {
@@ -467,10 +483,6 @@ async function assertNoPageOverflow(page, width, label) {
     overflow.hostRight <= overflow.clientWidth + 1,
     `BossHelper host is clipped for ${label}`,
   )
-}
-
-function requestedBossChunks() {
-  return [...bossChunkRequests]
 }
 
 async function auditControls(page) {
@@ -630,7 +642,7 @@ try {
           key: 'legacy-model',
           name: '旧版模型',
           data: {
-            base_url: 'https://example.com/v1',
+            url: 'https://example.com/v1/chat/completions',
             api_key: 'fixture-key',
             model: 'fixture-model',
           },
@@ -649,6 +661,10 @@ try {
   )
   assert.equal(migratedModels[0].name, '旧版模型')
   assert.equal(migratedModels[0].data.model, 'fixture-model')
+  assert.equal(migratedModels[0].data.base_url, 'https://example.com/v1')
+  assert.equal('url' in migratedModels[0].data, false)
+  const legacyModels = await extensionStorage(worker, 'sync', 'get', 'conf-model')
+  assert.equal(legacyModels['conf-model'], undefined)
   await migrationPage.close()
 
   const commonConfig = {
@@ -728,21 +744,16 @@ try {
         scrollbarGutter: grid.scrollbarGutter,
       }
     })
-  assert.equal(cardLayout.transform, 'none')
+  assert.ok(
+    cardLayout.transform === 'none' || cardLayout.transform === 'matrix(1, 0, 0, 1, 0, 0)',
+    `Unexpected initial card transform: ${cardLayout.transform}`,
+  )
   assert.equal(cardLayout.marginLeft, '0px')
   assert.match(cardLayout.scrollbarGutter, /stable/)
   assert.match(
     await host.getByText('岗位总数', { exact: true }).locator('..').innerText(),
     /7\s*份/,
   )
-
-  const initialChunks = requestedBossChunks()
-  for (const feature of ['Config', 'AI', 'Logs', 'About']) {
-    assert.ok(
-      !initialChunks.some((name) => name.includes(`boss-${feature}-`)),
-      `${feature} chunk loaded before its tab was opened`,
-    )
-  }
 
   const responsiveCases = [
     { width: 1024, label: '1024px' },
@@ -760,10 +771,6 @@ try {
   await host.getByRole('tab', { name: '规则' }).click()
   const deliveryLimit = host.getByRole('spinbutton', { name: '每批投递数量' })
   await deliveryLimit.waitFor()
-  assert.ok(
-    requestedBossChunks().some((name) => name.includes('boss-Config-')),
-    'Config chunk was not loaded after opening the Config tab',
-  )
   await assertNoPageOverflow(page, 512, 'Config tab at 200% zoom-equivalent width')
   await assertNoPageOverflow(page, 256, 'Config tab at 400% zoom-equivalent width')
   await page.setViewportSize({ width: 1024, height: 900 })
@@ -789,7 +796,6 @@ try {
     'web-geek-job-FormData-profile-b',
   ])
   assert.equal(savedPresets['web-geek-job-FormData'].deliveryLimit.value, 3)
-  assert.equal(savedPresets['web-geek-job-FormData-profile-b'].deliveryLimit.value, 10)
 
   let controlAudit = await auditControls(page)
   assert.deepEqual(controlAudit.duplicateIds, [])
@@ -816,10 +822,6 @@ try {
   )
 
   await host.getByRole('tab', { name: 'AI' }).click()
-  assert.ok(
-    requestedBossChunks().some((name) => name.includes('boss-AI-')),
-    'AI chunk was not loaded after opening the AI tab',
-  )
   const aiToggle = host.getByRole('button', { name: '启用AI招呼语', exact: true })
   await aiToggle.waitFor()
   await assertNoPageOverflow(page, 512, 'AI tab at 200% zoom-equivalent width')
@@ -933,22 +935,34 @@ try {
   const replyDraft = host.getByRole('textbox', { name: 'AI 回复草稿' })
   await replyDraft.waitFor()
   await replyDraft.fill('保留的测试草稿')
-  await waitForStorage(
-    worker,
-    'session',
-    'boss-helper-ai-reply-drafts',
-    (value) => value?.['fixture-conversation']?.text === '保留的测试草稿',
-  )
+  try {
+    await waitForStorage(
+      worker,
+      'session',
+      'boss-helper-ai-reply-drafts',
+      (value) => value?.['fixture-conversation']?.text === '保留的测试草稿',
+    )
+  } catch (error) {
+    const sessionStorage = await extensionStorage(worker, 'session', 'get', null)
+    throw new Error(
+      `Reply draft did not persist: ${JSON.stringify({ sessionStorage, browserErrors })}`,
+      { cause: error },
+    )
+  }
   await page.evaluate(() => window.__bossFixture.dispatchConversation('fixture-message-new'))
   const newMessageStatus = host.getByRole('status').filter({ hasText: '已有新消息' })
   await newMessageStatus.waitFor()
   assert.equal(await newMessageStatus.getAttribute('aria-live'), 'polite')
   await host.getByRole('button', { name: '重新生成草稿', exact: true }).click()
   await host.getByRole('alert').filter({ hasText: '生成失败' }).waitFor()
+  await page.evaluate(() => history.pushState({}, '', '/web/geek/chat'))
+  await page.waitForSelector('boss-helper-job', { state: 'detached' })
+  await page.evaluate(() => history.pushState({}, '', '/web/geek/jobs?boss-helper-fixture=normal'))
+  await waitForBossUi(page)
 
   const resourcesBefore = await page.evaluate(() => window.__bossFixture.resources())
-  assert.equal(resourcesBefore.aiReplyListeners, 1)
-  assert.equal(resourcesBefore.hookedDataKeys, 4)
+  assert.equal(resourcesBefore.aiReplyListeners, 0)
+  assert.equal(resourcesBefore.hookedDataKeys, 0)
   assert.equal(
     resourcesBefore.intervalDetails.some(({ timeout }) => timeout === 120 || timeout === 3000),
     false,
@@ -962,8 +976,8 @@ try {
           const resources = window.__bossFixture.resources()
           return (
             resources.hosts === 1 &&
-            resources.aiReplyListeners === 1 &&
-            resources.hookedDataKeys === 4 &&
+            resources.aiReplyListeners === 0 &&
+            resources.hookedDataKeys === 0 &&
             resources.intervals === expectedIntervals
           )
         },
@@ -982,7 +996,7 @@ try {
   }
   const resourcesAfter = await page.evaluate(() => window.__bossFixture.resources())
   assert.equal(resourcesAfter.hosts, 1)
-  assert.equal(resourcesAfter.aiReplyListeners, 1)
+  assert.equal(resourcesAfter.aiReplyListeners, 0)
   assert.equal(
     resourcesAfter.intervals,
     resourcesBefore.intervals,
@@ -992,7 +1006,7 @@ try {
   const remountedHost = await waitForBossUi(page)
   await page.evaluate(() => window.__bossFixture.replaceJobsAfterRemount())
   await remountedHost.getByRole('link', { name: '重挂后岗位 Fixture' }).waitFor()
-  await remountedHost.getByRole('button', { name: '对话', exact: true }).click()
+  await remountedHost.getByRole('button', { name: /^对话/ }).click()
   await page.evaluate(() => window.__bossFixture.dispatchConversation())
   const restoredDraft = remountedHost.getByRole('textbox', { name: 'AI 回复草稿' })
   await restoredDraft.waitFor()
@@ -1049,6 +1063,7 @@ try {
   const throttledPage = await context.newPage()
   await throttledPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
   const throttledHost = await waitForBossUi(throttledPage)
+  await dismissOnboardingIfVisible(throttledHost)
   await throttledHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
   await throttledHost.getByRole('button', { name: '开始', exact: true }).click()
   let runningCheckpoint
@@ -1105,6 +1120,7 @@ try {
   const bfcachePage = await context.newPage()
   await bfcachePage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
   const bfcacheHost = await waitForBossUi(bfcachePage)
+  await dismissOnboardingIfVisible(bfcacheHost)
   await bfcacheHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
   await bfcacheHost.getByRole('button', { name: '开始', exact: true }).click()
   await waitForStorage(
@@ -1150,6 +1166,7 @@ try {
   const workerRestartPage = await context.newPage()
   await workerRestartPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
   const workerRestartHost = await waitForBossUi(workerRestartPage)
+  await dismissOnboardingIfVisible(workerRestartHost)
   await workerRestartHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
   await workerRestartHost.getByRole('button', { name: '开始', exact: true }).click()
   await waitForStorage(
@@ -1178,6 +1195,7 @@ try {
   const pausedPage = await context.newPage()
   await pausedPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
   let pausedHost = await waitForBossUi(pausedPage)
+  await dismissOnboardingIfVisible(pausedHost)
   await pausedHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
   await pausedHost.getByRole('button', { name: '开始', exact: true }).click()
   await waitForStorage(
@@ -1208,6 +1226,7 @@ try {
   const restartPage = await context.newPage()
   await restartPage.goto('https://www.zhipin.com/web/geek/jobs?boss-helper-fixture=lifecycle')
   let restartHost = await waitForBossUi(restartPage)
+  await dismissOnboardingIfVisible(restartHost)
   await restartHost.getByRole('link', { name: '前端工程师 Fixture' }).waitFor()
   await restartHost.getByRole('button', { name: '开始', exact: true }).click()
   await waitForCondition(

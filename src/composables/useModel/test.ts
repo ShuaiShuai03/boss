@@ -141,11 +141,12 @@ export class VueChatState<UI_MESSAGE extends UIMessage> implements ChatState<UI_
   snapshot = <T>(value: T): T => value
 }
 
+const MAX_CHAT_JOBS = 200
+
 export class ChatModel {
   states: ShallowReactive<Map<string, VueChatState<Message>>> = shallowReactive(new Map())
 
   jobs = ref<string[]>([])
-
   agents: Map<MessageRole, [ToolLoopAgent, ModelConf, FormDataAi]> = new Map()
   generateId: { [key in MessageRole]: () => string }
   lastCreateAgentError = ''
@@ -162,10 +163,13 @@ export class ChatModel {
       {} as { [key in MessageRole]: () => string },
     )
   }
-
   ensureJobState(data: WorkflowData<any, any>) {
-    if (this.jobs.value.findIndex((j) => j === data.jobData.key) === -1) {
+    if (!this.jobs.value.includes(data.jobData.key)) {
       this.jobs.value.unshift(data.jobData.key)
+      const evicted = this.jobs.value.splice(MAX_CHAT_JOBS)
+      for (const key of evicted) {
+        this.states.delete(key)
+      }
     }
 
     if (!this.states.has(data.jobData.key)) {

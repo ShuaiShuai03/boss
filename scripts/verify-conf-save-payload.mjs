@@ -5,6 +5,7 @@ import { isReactive, reactive } from 'vue'
 import { defaultFormData } from '../src/composables/conf/info.ts'
 import {
   commitAfterPersistence,
+  createConfSaveItems,
   createConfSavePayload,
 } from '../src/composables/conf/savePayload.ts'
 
@@ -24,6 +25,14 @@ assert.equal(payload.formDataPreset, 'default')
 assert.deepEqual(payload.formDataPresets, [{ label: '默认配置', value: 'default' }])
 assert.equal(isReactive(payload.formData), false)
 assert.equal(isReactive(payload.formDataPresets), false)
+assert.deepEqual(
+  createConfSaveItems(payload, 'local:form-data', 'local:presets', 'local:selected'),
+  [
+    { key: 'local:form-data', value: payload.formData },
+    { key: 'local:presets', value: payload.formDataPresets },
+    { key: 'local:selected', value: payload.formDataPreset },
+  ],
+)
 assert.notEqual(payload.formData, formData)
 assert.notEqual(payload.formDataPresets, presets)
 

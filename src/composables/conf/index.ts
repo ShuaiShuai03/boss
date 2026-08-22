@@ -18,7 +18,11 @@ import { TimeoutError, withTimeout } from '@/utils/promise'
 import { defaultFormData } from './info'
 import { migrateFormData } from './migration'
 import { formDataKeyForPreset, preparePresetSwitch } from './preset'
-import { commitAfterPersistence, createConfSavePayload } from './savePayload'
+import {
+  commitAfterPersistence,
+  createConfSaveItems,
+  createConfSavePayload,
+} from './savePayload'
 
 export * from './info'
 
@@ -204,14 +208,14 @@ export const useConf = () => {
         await commitAfterPersistence(
           () =>
             withTimeout(
-              (async () => {
-                await counter.storageSet(
+              counter.storageSetItems(
+                createConfSaveItems(
+                  payload,
                   formDataKeyForPreset(payload.formDataPreset),
-                  payload.formData,
-                )
-                await counter.storageSet(formDataPresetsKey, payload.formDataPresets)
-                await counter.storageSet(formDataPresetKey, payload.formDataPreset)
-              })(),
+                  formDataPresetsKey,
+                  formDataPresetKey,
+                ),
+              ),
               CONF_SAVE_TIMEOUT_MS,
               '保存配置超时，请刷新当前 BOSS 页面后再试',
             ),
@@ -356,9 +360,14 @@ export const useConf = () => {
       ]
       const payload = createConfSavePayload(formData, value, nextPresets)
 
-      await counter.storageSet(formDataKeyForPreset(value), payload.formData)
-      await counter.storageSet(formDataPresetsKey, payload.formDataPresets)
-      await counter.storageSet(formDataPresetKey, payload.formDataPreset)
+      await counter.storageSetItems(
+        createConfSaveItems(
+          payload,
+          formDataKeyForPreset(value),
+          formDataPresetsKey,
+          formDataPresetKey,
+        ),
+      )
       formDataPresets.value = nextPresets
       formDataPreset.value = value
       markCurrentFormDataSaved(payload.formData)

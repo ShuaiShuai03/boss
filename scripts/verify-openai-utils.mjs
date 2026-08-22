@@ -70,6 +70,12 @@ assert.deepEqual(
     },
   },
 )
+const migratedLegacyConfig = normalizeOpenaiConfig({
+  url: 'https://api.example.com/v1/chat/completions',
+  advanced: {},
+})
+assert.equal(migratedLegacyConfig.base_url, 'https://api.example.com/v1')
+assert.equal('url' in migratedLegacyConfig, false)
 
 assert.throws(
   () =>

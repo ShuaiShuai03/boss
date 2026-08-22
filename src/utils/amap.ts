@@ -47,17 +47,29 @@ export interface AmapDistance {
   }>
 }
 
+const MAX_AMAP_CACHE_ENTRIES = 200
+const geocodeCache = new Map<string, AmapGeocode['geocodes'][number] | undefined>()
+
 export async function amapGeocode(
   address: string,
 ): Promise<AmapGeocode['geocodes'][number] | undefined> {
   const { formData } = useConf()
-  const res = (await fetch(
-    `https://restapi.amap.com/v3/geocode/geo?address=${address}&output=JSON&Key=${formData.amap.key}`,
-  ).then((response) => response.json())) as AmapGeocode | AmapError
+  const cacheKey = `${formData.amap.key}\u0000${address}`
+  if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey)
+  const url = new URL('https://restapi.amap.com/v3/geocode/geo')
+  url.searchParams.set('address', address)
+  url.searchParams.set('output', 'JSON')
+  url.searchParams.set('key', formData.amap.key)
+  const res = (await fetch(url).then((response) => response.json())) as AmapGeocode | AmapError
   if (res.status !== '1' || !('geocodes' in res)) {
     throw new Error(res.info)
   }
-  return res.geocodes?.[0]
+  const result = res.geocodes?.[0]
+  geocodeCache.set(cacheKey, result)
+  if (geocodeCache.size > MAX_AMAP_CACHE_ENTRIES) {
+    geocodeCache.delete(geocodeCache.keys().next().value!)
+  }
+  return result
 }
 
 async function fetchDistance(
@@ -66,9 +78,13 @@ async function fetchDistance(
   type: number,
   key: string,
 ): Promise<AmapDistance | AmapError> {
-  return fetch(
-    `https://restapi.amap.com/v3/distance?origins=${origins}&destination=${destination}&type=${type}&output=JSON&Key=${key}`,
-  ).then((r) => r.json())
+  const url = new URL('https://restapi.amap.com/v3/distance')
+  url.searchParams.set('origins', origins)
+  url.searchParams.set('destination', destination)
+  url.searchParams.set('type', String(type))
+  url.searchParams.set('output', 'JSON')
+  url.searchParams.set('key', key)
+  return fetch(url).then((response) => response.json())
 }
 
 function extractResult(res: AmapDistance | AmapError) {
@@ -82,9 +98,20 @@ function extractResult(res: AmapDistance | AmapError) {
   return { ok: false, distance: 0, duration: 0 }
 }
 
-export async function amapDistance(destination: string) {
+interface AmapDistanceResult {
+  straight: { ok: boolean; distance: number; duration: number }
+  driving: { ok: boolean; distance: number; duration: number }
+  walking: { ok: boolean; distance: number; duration: number }
+}
+
+const distanceCache = new Map<string, AmapDistanceResult>()
+
+export async function amapDistance(destination: string): Promise<AmapDistanceResult> {
   const { formData } = useConf()
   const { origins, key } = formData.amap
+  const cacheKey = `${key}\u0000${origins}\u0000${destination}`
+  const cached = distanceCache.get(cacheKey)
+  if (cached) return cached
 
   const [res0, res1, res3] = await Promise.all([
     fetchDistance(origins, destination, 0, key),
@@ -92,9 +119,14 @@ export async function amapDistance(destination: string) {
     fetchDistance(origins, destination, 3, key),
   ])
 
-  return {
+  const result: AmapDistanceResult = {
     straight: extractResult(res0),
     driving: extractResult(res1),
     walking: extractResult(res3),
   }
+  distanceCache.set(cacheKey, result)
+  if (distanceCache.size > MAX_AMAP_CACHE_ENTRIES) {
+    distanceCache.delete(distanceCache.keys().next().value!)
+  }
+  return result
 }

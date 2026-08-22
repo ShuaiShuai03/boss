@@ -1,17 +1,8 @@
 import type { StorageLikeAsync } from '@vueuse/core'
-import { defineProxy } from 'comctx'
 
-import { type ContentCounter } from './contentScript'
-import { InjectContentAdapter, readInjectedContentBridgeOptions } from './contentScriptShare'
+import { ContentCounter, InjectBackgroundAdapter, injectBackgroundCounter } from './contentScript'
 
-// export type * from './background'
-// export type * from './contentScript'
-
-export const [, injectCounter] = defineProxy(() => ({}) as ContentCounter, {
-  namespace: '__boss-helper-content__',
-})
-
-export const counter = injectCounter(new InjectContentAdapter(readInjectedContentBridgeOptions()))
+export const counter = new ContentCounter(injectBackgroundCounter(new InjectBackgroundAdapter()))
 
 export const ExtStorage: StorageLikeAsync = {
   async getItem(key) {

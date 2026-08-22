@@ -1,31 +1,27 @@
 import ui from '@nuxt/ui/vite'
 import vueJsx from '@vitejs/plugin-vue-jsx'
-import { transformWithEsbuild } from 'vite'
 import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
 import { defineConfig } from 'wxt'
 
 import { version } from './package.json'
 
-const matches = ['*://zhipin.com/*', '*://*.zhipin.com/*']
+const configuredVersion = process.env.VITE_VERSION?.trim()
+const buildVersion =
+  configuredVersion && /^\d+(?:\.\d+){0,3}$/.test(configuredVersion) ? configuredVersion : version
 
-function shouldScanAutoImportFile(file: string) {
-  return !file.replaceAll('\\', '/').endsWith('utils/request.ts')
-}
+const matches = ['*://zhipin.com/*', '*://*.zhipin.com/*']
 
 export default defineConfig({
   srcDir: 'src',
   outDirTemplate: '{{browser}}-mv{{manifestVersion}}',
   modules: ['@wxt-dev/module-vue'],
-  imports: {
-    dirsScanOptions: {
-      fileFilter: shouldScanAutoImportFile,
-    },
-  },
 
-  vite: (env) => ({
+  vite: () => ({
     define: {
-      __APP_VERSION__: JSON.stringify(version),
-      __BOSS_HELPER_TARGET_BROWSER__: JSON.stringify(env.browser),
+      __APP_VERSION__: JSON.stringify(buildVersion),
+      __BOSS_HELPER_TEST_OPEN_SHADOW__: JSON.stringify(
+        process.env.BOSS_HELPER_TEST_OPEN_SHADOW === '1',
+      ),
     },
     ssr: {
       noExternal: [
@@ -116,12 +112,13 @@ export default defineConfig({
   dev: {},
   manifest: {
     default_locale: 'zh_CN',
+    version: buildVersion,
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
-    permissions: ['storage', 'notifications', 'alarms'],
+    permissions: ['storage', 'notifications', 'alarms', 'scripting'],
     web_accessible_resources: [
       {
-        resources: ['boss.js', 'chat-socket-main-world.js', 'chunks/*'],
+        resources: ['chat-socket-main-world.js'],
         matches,
       },
     ],
@@ -130,57 +127,11 @@ export default defineConfig({
     browser_specific_settings: {
       gecko: {
         id: '{1b66669d-c871-43f3-8c0c-d8a1c0566071}',
-        strict_min_version: '109.0',
+        strict_min_version: '128.0',
       },
     },
   },
   webExt: {
     disabled: true,
   },
-  hooks: {
-    'vite:build:extendConfig'(entrypoints, viteConfig) {
-      const buildsBoss = entrypoints.some(
-        (entrypoint) => entrypoint.type === 'unlisted-script' && entrypoint.name === 'boss',
-      )
-      const buildsChrome =
-        viteConfig.define?.__BOSS_HELPER_TARGET_BROWSER__ === JSON.stringify('chrome')
-      if (!buildsBoss || !buildsChrome || !viteConfig.build?.lib) return
-
-      viteConfig.build.lib.formats = ['es']
-      viteConfig.build.minify = 'esbuild'
-      viteConfig.plugins ??= []
-      viteConfig.plugins.push({
-        name: 'boss-helper:minify-chrome-main-world-esm',
-        enforce: 'post',
-        async renderChunk(code, chunk, outputOptions) {
-          if (outputOptions.format !== 'es') return null
-          return transformWithEsbuild(code, chunk.fileName, {
-            format: 'esm',
-            minify: true,
-            sourcemap: false,
-            target: 'es2022',
-          })
-        },
-      })
-      viteConfig.build.rollupOptions ??= {}
-      const output = viteConfig.build.rollupOptions.output
-      if (Array.isArray(output)) {
-        throw new Error('BossHelper expects a single Rollup output configuration')
-      }
-      viteConfig.build.rollupOptions.output = {
-        ...output,
-        chunkFileNames: 'chunks/boss-[name]-[hash].js',
-      }
-    },
-  },
-  // hooks: {
-  //   'build:manifestGenerated': (wxt, manifest) => {
-  //     manifest.content_scripts ??= []
-  //     manifest.content_scripts.push({
-  //       // Build extension once to see where your CSS get's written to
-  //       css: ['/assets/main-world.css'],
-  //       matches,
-  //     })
-  //   },
-  // },
 })

@@ -1,7 +1,7 @@
 import { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 import { extendRef } from '@vueuse/core'
 import { UserContent } from 'ai'
-import { computed, Reactive, ref, Ref } from 'vue'
+import { computed, Reactive, ref, Ref, watch } from 'vue'
 
 import { useConf } from '@/composables/conf'
 import { createInitializationGate } from '@/composables/initializationGate'
@@ -16,10 +16,10 @@ import { logger } from '@/utils/logger'
 
 import { initNetConf, NetConf } from './netConf'
 import { Log, JobData, LogData } from './type'
+const MAX_LOG_ENTRIES = 500
 
 export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   netConf: Ref<NetConf | null>
-  netConfTimer: ReturnType<typeof setInterval> | null = null
   conf: ReturnType<typeof useConf>
   models: ReturnType<typeof useModel>
   statistics: ReturnType<typeof createExtensionStatisticsStore>
@@ -63,6 +63,16 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     this.statistics = createExtensionStatisticsStore()
     this.currentJob = ref(null)
     this._logs = ref([])
+    const stopLogCap = watch(
+      this._logs,
+      (logs) => {
+        if (logs.length > MAX_LOG_ENTRIES) {
+          logs.splice(0, logs.length - MAX_LOG_ENTRIES)
+        }
+      },
+      { deep: true, flush: 'sync' },
+    )
+    this.registerDisposer(stopLogCap)
     this.logs = extendRef(this._logs, {
       add: (job: JobData, err?: BossHelperError, logdata?: LogData, msg?: string) => {
         const state = !err ? 'success' : err.state
@@ -101,8 +111,8 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract loadMoreJob(delay: Promise<any>): Promise<boolean>
   abstract onMount(): Promise<void>
   abstract start(): Promise<void>
-  abstract sendMessage(jobKey: string, msg: UserContent): Promise<void>
-  abstract sendChatMessage(target: AiReplySendTarget): Promise<void>
+  abstract sendMessage(jobKey: string, msg: UserContent, signal?: AbortSignal): Promise<void>
+  abstract sendChatMessage(target: AiReplySendTarget, signal?: AbortSignal): Promise<void>
   abstract get uid(): string
   abstract get protocolUserId(): string
   abstract get userInfo(): {
@@ -146,10 +156,6 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     this.disposed = true
     this.stop()
     this.disposeView()
-    if (this.netConfTimer) {
-      clearInterval(this.netConfTimer)
-      this.netConfTimer = null
-    }
     this.statistics.dispose()
     for (const disposer of this.disposers) {
       try {
@@ -166,10 +172,6 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     await this.workflow?.suspendForLifecycle(trigger)
     this.disposed = true
     this.disposeView()
-    if (this.netConfTimer) {
-      clearInterval(this.netConfTimer)
-      this.netConfTimer = null
-    }
     this.statistics.dispose()
     for (const disposer of this.disposers) {
       try {
@@ -186,23 +188,9 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
       .then((data) => {
         this.netConf.value = data ?? null
       })
-      .catch((e) => {
-        logger.warn('网络配置初始化失败', e)
+      .catch((error) => {
+        logger.warn('网络配置初始化失败', error)
       })
-    if (!this.netConfTimer) {
-      this.netConfTimer = setInterval(
-        () => {
-          void initNetConf()
-            .then((data) => {
-              this.netConf.value = data ?? null
-            })
-            .catch((e) => {
-              logger.warn('网络配置刷新失败', e)
-            })
-        },
-        1000 * 60 * 5,
-      )
-    }
   }
 
   stop() {

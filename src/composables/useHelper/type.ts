@@ -3,12 +3,15 @@ import type { amapDistance, amapGeocode } from '@/utils/amap'
 
 export type JobBaseData = {
   key: string
+  /** 稳定的公司身份，用于跨岗位重复投递过滤。 */
+  duplicateCompanyId?: string
+  /** 稳定的招聘者身份，用于跨岗位重复投递过滤。 */
+  duplicateHrId?: string
   link?: string
   /** 职位名称，例如：'前端开发工程师' */
   jobName: string
   /** 职位名称，例如：'前端工程师' */
   positionName: string
-
   /** 职位描述，包含岗位职责和任职要求，例如：'负责前端页面开发，熟悉Vue/React框架...' */
   jobDescription: string
 }

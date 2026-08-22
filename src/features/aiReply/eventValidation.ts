@@ -1,9 +1,8 @@
-// Validates the payload of AI_REPLY_DOM_MESSAGE_EVENT before it's trusted by ChatBox.vue. The
-// event is dispatched on `document` by main-world scripts (chat-socket-main-world.ts, the
-// injected boss.js greeting seed), which share the same JS realm as the host page's own scripts -
-// any other script in that world can dispatch a same-named event with attacker-controlled detail
-// (BH-SEC-02). Only a shape/size check, not a capability boundary: it rejects malformed or
-// oversized payloads instead of feeding fabricated chat content into the AI reply pipeline.
+// Bounds AI_REPLY_DOM_MESSAGE_EVENT before ChatBox.vue displays or routes it. The event is
+// dispatched on `document` by chat-socket-main-world.ts, so any host-page script can forge the
+// same event. This parser is deliberately not a capability boundary: it only rejects malformed
+// or oversized data, and consumers must never let the event automatically invoke model, storage,
+// network, workflow, or chat-send operations.
 
 import type { AiReplyChatEventPayload, AiReplyPeer, AiReplyRealtimeMessage } from './types'
 

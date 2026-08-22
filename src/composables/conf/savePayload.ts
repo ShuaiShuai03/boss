@@ -19,6 +19,19 @@ export function createConfSavePayload<FormDataLike>(
     formDataPresets: jsonClone(formDataPresets),
   }
 }
+export function createConfSaveItems<FormDataLike>(
+  payload: ConfSavePayload<FormDataLike>,
+  formDataKey: string,
+  presetsKey: string,
+  selectedPresetKey: string,
+) {
+  return [
+    { key: formDataKey, value: payload.formData },
+    { key: presetsKey, value: payload.formDataPresets },
+    { key: selectedPresetKey, value: payload.formDataPreset },
+  ]
+}
+
 
 export async function commitAfterPersistence(
   persist: () => Promise<unknown>,

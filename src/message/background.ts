@@ -12,27 +12,32 @@ import {
   type WorkflowRunCheckpoint,
   type WorkflowRunClaim,
 } from '@/composables/useApplying/runState'
+import {
+  aiReplyConversationStorageKey,
+  aiReplyDraftStorageKey,
+} from '@/features/aiReply/draftStorage'
 
 import { readBoundedResponseText } from './boundedResponse'
 
-export const userKey = 'local:conf-user'
+export const legacyUserStorageKey = 'conf-user'
 
-type BackgroundResponseType = 'text' | 'json' | 'arraybuffer' | 'blob' | 'document' | 'stream'
-
-export interface BackgroundRawResponse {
+export interface BackgroundAiResponse {
   status: number
   headers: Record<string, string>
   body: string
 }
 
-export interface BackgroundRawRequest {
+export interface BackgroundAiRequest {
+  baseUrl: string
   url: string
-  data?: {
-    method?: string
-    headers?: Record<string, string>
-    body?: string | null
-  }
-  timeout?: number
+  method: 'GET' | 'POST'
+  headers: Record<string, string>
+  body?: string
+  timeoutMs: number
+}
+export interface AiReplySessionState {
+  drafts?: unknown
+  conversations?: unknown
 }
 
 let workflowRunMutation = Promise.resolve()
@@ -50,7 +55,9 @@ function mutateWorkflowRun<T>(mutation: () => Promise<T>) {
 // buffered here as text and then re-buffered again when useModel/openai.ts reconstructs a
 // Response from it, risking a memory spike, added latency, or the MV3 worker being restarted
 // (BH-NET-01). 25MB comfortably covers any realistic model completion/listing payload.
-const MAX_RAW_RESPONSE_BYTES = 25 * 1024 * 1024
+const MAX_AI_RESPONSE_BYTES = 25 * 1024 * 1024
+const MAX_AI_REQUEST_BODY_BYTES = 5 * 1024 * 1024
+const MAX_AI_REPLY_SESSION_BYTES = 2 * 1024 * 1024
 
 function normalizeHttpRequestUrl(url: string) {
   const parsedUrl = new URL(url)
@@ -136,63 +143,104 @@ export class BackgroundCounter {
       return checkpoint
     })
   }
-
-  async sessionStorageGet<T>(key: string, defaultValue: T): Promise<T> {
-    const value = await browser.storage.session.get(key)
-    return (value[key] as T | undefined) ?? defaultValue
+  async readAiReplySession(): Promise<AiReplySessionState> {
+    const values = await browser.storage.session.get([
+      aiReplyDraftStorageKey,
+      aiReplyConversationStorageKey,
+    ])
+    return {
+      drafts: values[aiReplyDraftStorageKey],
+      conversations: values[aiReplyConversationStorageKey],
+    }
   }
 
-  async sessionStorageSet<T>(key: string, value: T) {
-    await browser.storage.session.set({ [key]: value })
+  async writeAiReplySession(state: AiReplySessionState) {
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      throw new TypeError('AI 回复会话状态无效')
+    }
+    const keys = Object.keys(state)
+    if (keys.some((key) => key !== 'drafts' && key !== 'conversations')) {
+      throw new TypeError('AI 回复会话状态包含未知字段')
+    }
+    const values: Record<string, unknown> = {}
+    if (state.drafts !== undefined) values[aiReplyDraftStorageKey] = state.drafts
+    if (state.conversations !== undefined) {
+      values[aiReplyConversationStorageKey] = state.conversations
+    }
+    let serialized: string
+    try {
+      serialized = JSON.stringify(values)
+    } catch {
+      throw new TypeError('AI 回复会话状态必须可序列化')
+    }
+    if (new TextEncoder().encode(serialized).byteLength > MAX_AI_REPLY_SESSION_BYTES) {
+      throw new Error('AI 回复会话状态过大')
+    }
+    if (Object.keys(values).length > 0) await browser.storage.session.set(values)
     return true
   }
 
-  async request(args: {
-    url: string
-    data: RequestInit
-    timeout: number
-    responseType: BackgroundResponseType
-  }) {
-    console.log('request', args)
-    const signal = AbortSignal.timeout(args.timeout * 1000)
-    const url = normalizeHttpRequestUrl(args.url)
-
-    const res = await fetch(url, {
-      ...args.data,
-      signal,
-      mode: 'cors',
-      credentials: 'include',
-    }).then(async (res) => {
-      console.log('request res', res)
-
-      if (!res.ok || res.status >= 400) {
-        const errorText = await res.text()
-        throw new Error(`状态码: ${res.status}: ${errorText}`)
-      }
-
-      const result = args.responseType === 'json' ? await res.json() : await res.text()
-
-      return result
-    })
-    return res
-  }
-
-  async rawRequest(args: BackgroundRawRequest): Promise<BackgroundRawResponse> {
-    const signal = AbortSignal.timeout(args.timeout ?? 60000)
-    const url = normalizeHttpRequestUrl(args.url)
-    const res = await fetch(url, {
-      method: args.data?.method ?? 'GET',
-      headers: args.data?.headers,
-      body: args.data?.body,
-      signal,
+  async aiRequest(args: BackgroundAiRequest): Promise<BackgroundAiResponse> {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      throw new TypeError('AI 请求参数无效')
+    }
+    if (
+      typeof args.baseUrl !== 'string' ||
+      typeof args.url !== 'string' ||
+      args.baseUrl.length > 8192 ||
+      args.url.length > 8192
+    ) {
+      throw new TypeError('AI 请求 URL 无效')
+    }
+    if (args.method !== 'GET' && args.method !== 'POST') {
+      throw new TypeError('AI 请求方法不受支持')
+    }
+    const baseUrl = new URL(normalizeHttpRequestUrl(args.baseUrl))
+    const requestUrl = new URL(normalizeHttpRequestUrl(args.url))
+    const basePath = baseUrl.pathname.replace(/\/+$/, '')
+    if (
+      requestUrl.origin !== baseUrl.origin ||
+      (basePath &&
+        requestUrl.pathname !== basePath &&
+        !requestUrl.pathname.startsWith(`${basePath}/`))
+    ) {
+      throw new Error('AI 请求 URL 不属于已配置的模型 Base URL')
+    }
+    if (args.body !== undefined && typeof args.body !== 'string') {
+      throw new TypeError('AI 请求体无效')
+    }
+    if (
+      args.body !== undefined &&
+      new TextEncoder().encode(args.body).byteLength > MAX_AI_REQUEST_BODY_BYTES
+    ) {
+      throw new Error('AI 请求体过大')
+    }
+    if (!args.headers || typeof args.headers !== 'object' || Array.isArray(args.headers)) {
+      throw new TypeError('AI 请求头无效')
+    }
+    const headerEntries = Object.entries(args.headers)
+    if (
+      headerEntries.length > 100 ||
+      headerEntries.some(
+        ([key, value]) => typeof value !== 'string' || key.length > 256 || value.length > 8192,
+      )
+    ) {
+      throw new Error('AI 请求头超出允许范围')
+    }
+    if (!Number.isFinite(args.timeoutMs)) throw new TypeError('AI 请求超时无效')
+    const timeoutMs = Math.max(1, Math.min(120_000, args.timeoutMs))
+    const response = await fetch(requestUrl, {
+      method: args.method,
+      headers: args.headers,
+      body: args.method === 'POST' ? args.body : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
       mode: 'cors',
       credentials: 'omit',
     })
-
     return {
-      status: res.status,
-      headers: Object.fromEntries(res.headers.entries()),
-      body: await readBoundedResponseText(res, MAX_RAW_RESPONSE_BYTES),
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: await readBoundedResponseText(response, MAX_AI_RESPONSE_BYTES),
     }
   }
 
@@ -211,10 +259,6 @@ export class BackgroundCounter {
       throw new Error(`background test error date: ${Date.now()}`)
     }
     return Date.now()
-  }
-
-  async fetch(...args: Parameters<typeof fetch>) {
-    return await fetch(...args)
   }
 }
 

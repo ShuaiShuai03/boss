@@ -48,6 +48,7 @@ export interface WorkflowRunClaim {
 function unique(values: string[]) {
   return [...new Set(values)]
 }
+export const maxWorkflowHistoryEntries = 500
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -78,6 +79,12 @@ function sanitizeResult(value: unknown): PersistedJobResult | null {
     completedAt: finiteNonNegative(value.completedAt),
   }
 }
+function boundedIds(value: unknown) {
+  if (!Array.isArray(value)) return []
+  const ids = value.filter((item): item is string => typeof item === 'string')
+  return unique(ids).slice(-maxWorkflowHistoryEntries)
+}
+
 
 export function normalizeWorkflowRunCheckpoint(value: unknown): WorkflowRunCheckpoint | null {
   if (!isRecord(value) || value.version !== 1) return null
@@ -92,7 +99,9 @@ export function normalizeWorkflowRunCheckpoint(value: unknown): WorkflowRunCheck
 
   const results: Record<string, PersistedJobResult> = {}
   if (isRecord(value.results)) {
-    for (const [jobKey, resultValue] of Object.entries(value.results)) {
+    for (const [jobKey, resultValue] of Object.entries(value.results).slice(
+      -maxWorkflowHistoryEntries,
+    )) {
       const result = sanitizeResult(resultValue)
       if (result) results[jobKey] = result
     }
@@ -112,21 +121,9 @@ export function normalizeWorkflowRunCheckpoint(value: unknown): WorkflowRunCheck
     batchLimit: Math.max(1, finiteNonNegative(value.batchLimit, 1)),
     batchSubmitted: finiteNonNegative(value.batchSubmitted),
     currentJobKey: typeof value.currentJobKey === 'string' ? value.currentJobKey : null,
-    countedJobKeys: unique(
-      Array.isArray(value.countedJobKeys)
-        ? value.countedJobKeys.filter((item): item is string => typeof item === 'string')
-        : [],
-    ),
-    submissionIntentJobKeys: unique(
-      Array.isArray(value.submissionIntentJobKeys)
-        ? value.submissionIntentJobKeys.filter((item): item is string => typeof item === 'string')
-        : [],
-    ),
-    submittedJobKeys: unique(
-      Array.isArray(value.submittedJobKeys)
-        ? value.submittedJobKeys.filter((item): item is string => typeof item === 'string')
-        : [],
-    ),
+    countedJobKeys: boundedIds(value.countedJobKeys),
+    submissionIntentJobKeys: boundedIds(value.submissionIntentJobKeys),
+    submittedJobKeys: boundedIds(value.submittedJobKeys),
     results,
     lastTransition: typeof value.lastTransition === 'string' ? value.lastTransition : undefined,
     lastError: typeof value.lastError === 'string' ? value.lastError : undefined,

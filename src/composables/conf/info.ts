@@ -77,8 +77,7 @@ export const formInfoData: FormInfoData = {
   },
   customGreeting: {
     label: '自定义招呼语',
-    'data-help':
-      '因为boss不支持将自定义的招呼语设置为默认招呼语。开启表示发送boss默认的招呼语后还会发送自定义招呼语',
+    'data-help': 'AI招呼语启用时会替代自定义招呼语；否则开启后发送自定义招呼语。',
   },
   greetingVariable: {
     label: '招呼语变量',
@@ -129,7 +128,7 @@ export const formInfoData: FormInfoData = {
   },
   aiReply: {
     label: 'AI回复',
-    'data-help': '结合岗位信息和完整聊天上下文生成可编辑的回复草稿，确认后再发送给 HR/BOSS。',
+    'data-help': '结合岗位信息和完整聊天上下文生成可编辑的回复草稿，需点击生成并确认后再发送给 HR/BOSS。',
   },
   record: {
     label: '内容记录',
@@ -141,8 +140,9 @@ export const formInfoData: FormInfoData = {
       'data-help': '点击投递按钮会等待一段时间,默认值10s',
     },
     deliveryInterval: {
-      label: '投递间隔',
-      'data-help': '每个投递的间隔,太快易风控,默认值2s',
+      label: '旧版投递间隔（已迁移）',
+      'data-help': '旧版本字段已迁移到动作间隔，当前不可编辑。',
+      disable: true,
     },
     deliveryPageNext: {
       label: '投递翻页',

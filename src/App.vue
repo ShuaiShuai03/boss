@@ -224,7 +224,6 @@ onMounted(async () => {
   if (container.value) {
     helpTargetObserver.observe(container.value, { childList: true, subtree: true })
   }
-  await helper.ensureInitialized().catch(() => undefined)
   chatOpen.value = appearanceConf.value.defaultShowChatBox
 })
 

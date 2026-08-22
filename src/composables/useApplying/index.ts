@@ -7,6 +7,7 @@ import {
   EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
   isExtensionContextInvalidated,
 } from '@/utils/extension'
+import { LimitError, RateLimitError } from './deliverError'
 
 import { HelperContext } from '../useHelper'
 import { DependencyMissingError } from './handles'
@@ -195,6 +196,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
   let executionController: AbortController | null = null
   let executionPromise: Promise<void> | null = null
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let platformStop: 'limit_reached' | 'rate_limited' | null = null
   let manualPauseRequested = false
 
   const refreshRuntimeId = async () => {
@@ -290,6 +292,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         }
       } catch (e) {
         errors.set(task.id, e)
+        throw e
       }
     }
 
@@ -421,6 +424,11 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           if (generation !== executionGeneration || executionController?.signal.aborted) {
             throw new WorkflowInterruptedError()
           }
+          if (e instanceof LimitError) {
+            platformStop = 'limit_reached'
+          } else if (e instanceof RateLimitError) {
+            platformStop = 'rate_limited'
+          }
           const error = normalizeLogError(e)
           const shouldStopWorkflow = isExtensionContextInvalidated(e)
           ;(data.state as any).error = error
@@ -482,6 +490,19 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           },
         })
       }
+      if (
+        helper.conf.formData.useCache.value &&
+        finalResult?.status &&
+        finalResult.status !== 'error'
+      ) {
+        void cachePipelineResult(
+          data.jobData.key,
+          data.jobData.jobName,
+          data.jobData.brand.name,
+          finalResult.status,
+          finalResult.msg ?? finalResult.reason ?? '已处理',
+        )
+      }
       return { delivered }
     } catch (e) {
       if (e instanceof WorkflowInterruptedError || e instanceof WorkflowLeaseLostError) throw e
@@ -491,6 +512,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
   }
 
   const runExecution = async (rawDataMap: Map<string, T>, generation: number) => {
+    platformStop = null
     await rebuild()
     assertExecutionActive(generation)
 
@@ -593,6 +615,23 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
             break
           }
           const result = helper.jobResultMaps.get(jobData.key)
+          if (platformStop) {
+            recoverableInterruption = true
+            if (result) {
+              await runCoordinator.completeJob(jobData.key, result, false)
+            }
+            status.value = 'stop'
+            stepMsg =
+              platformStop === 'limit_reached'
+                ? 'BOSS 平台已达到今日沟通上限，已暂停'
+                : 'BOSS 平台请求频繁，已暂停并等待手动继续'
+            stopReason.value = createWorkflowStopReason(platformStop, stepMsg)
+            await runCoordinator.pause().catch((error) => {
+              logger.warn('保存平台限流暂停状态失败', normalizeLogError(error))
+            })
+            helper.logs.info('平台限制暂停', stepMsg)
+            break
+          }
           if (result && (result.status === 'success' || result.status === 'warn')) {
             await runCoordinator.completeJob(jobData.key, result, executeResult?.delivered === true)
             assertExecutionActive(generation)
@@ -696,43 +735,48 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     if (executionPromise) return executionPromise
     if (!userInitiated && manualPauseRequested) return
     if (userInitiated) manualPauseRequested = false
-    try {
-      await refreshRuntimeId()
-      const existing = await runCoordinator.read()
-      hydrateCheckpoint(existing)
-      if (existing?.intent === 'finished' || existing?.accountId !== helper.uid) {
-        runCoordinator.claim.runId = createExecutionId()
-      }
-      runCoordinator.claim.batchLimit =
-        helper.conf.formData.deliveryLimit.value || helper.conf.defaultFormData.deliveryLimit.value
-      const acquired = await runCoordinator.acquire(userInitiated)
-      hydrateCheckpoint(runCoordinator.checkpoint)
-      if (userInitiated) manualPauseRequested = false
-      if (!acquired) {
-        if (runCoordinator.checkpoint?.intent !== 'paused') {
-          status.value = 'recovering'
-          recoveryMessage.value = '检测到另一个活动执行器，正在等待其租约更新。'
-        }
-        return
-      }
-    } catch (error) {
-      status.value = 'recovering'
-      recoveryMessage.value = '暂时无法连接扩展恢复服务，返回页面后将重试。'
-      logger.warn('认领工作流执行租约失败', normalizeLogError(error))
-      return
-    }
 
-    executionGeneration += 1
-    const generation = executionGeneration
-    executionController = new AbortController()
-    startHeartbeat(generation)
-    const promise = runExecution(rawDataMap, generation).finally(() => {
-      stopHeartbeat()
-      if (executionPromise === promise) executionPromise = null
-      if (executionController?.signal.aborted || generation === executionGeneration) {
-        executionController = null
+    let generation = 0
+    let promise: Promise<void> | null = null
+    promise = (async () => {
+      try {
+        await refreshRuntimeId()
+        runCoordinator.claim.accountId = helper.uid
+        const existing = await runCoordinator.read()
+        hydrateCheckpoint(existing)
+        if (existing?.intent === 'finished' || existing?.accountId !== helper.uid) {
+          runCoordinator.claim.runId = createExecutionId()
+        }
+        runCoordinator.claim.batchLimit =
+          helper.conf.formData.deliveryLimit.value || helper.conf.defaultFormData.deliveryLimit.value
+        const acquired = await runCoordinator.acquire(userInitiated)
+        hydrateCheckpoint(runCoordinator.checkpoint)
+        if (userInitiated) manualPauseRequested = false
+        if (!acquired) {
+          if (runCoordinator.checkpoint?.intent !== 'paused') {
+            status.value = 'recovering'
+            recoveryMessage.value = '检测到另一个活动执行器，正在等待其租约更新。'
+          }
+          return
+        }
+
+        executionGeneration += 1
+        generation = executionGeneration
+        executionController = new AbortController()
+        startHeartbeat(generation)
+        await runExecution(rawDataMap, generation)
+      } catch (error) {
+        status.value = 'recovering'
+        recoveryMessage.value = '暂时无法连接扩展恢复服务，返回页面后将重试。'
+        logger.warn('认领工作流执行租约失败', normalizeLogError(error))
+      } finally {
+        if (generation === executionGeneration) {
+          stopHeartbeat()
+          executionController = null
+        }
+        if (promise && executionPromise === promise) executionPromise = null
       }
-    })
+    })()
     executionPromise = promise
     return promise
   }
@@ -759,6 +803,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         recoveryMessage.value = null
         return
       }
+      runCoordinator.claim.accountId = helper.uid
 
       const ownsLease = checkpoint.ownerId === runtimeId
       const stale = workflowRunIsStale(checkpoint, Date.now())
@@ -799,27 +844,64 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
 
   const stop = () => {
     manualPauseRequested = true
+    const activeExecution = executionPromise
     interruptExecution()
-    executionPromise = null
     status.value = 'stop'
     recoveryMessage.value = null
     stopReason.value = createWorkflowStopReason('manual', '你可以检查当前结果后继续。')
-    void runCoordinator
-      .pause()
+    const pausePromise = (async () => {
+      await activeExecution?.catch(() => undefined)
+      await runCoordinator.pause()
+    })()
+    executionPromise = pausePromise
+    void pausePromise
       .catch((error) => logger.warn('保存手动暂停状态失败', normalizeLogError(error)))
+      .finally(() => {
+        if (executionPromise === pausePromise) executionPromise = null
+      })
   }
   const reset = () => {
+    const activeExecution = executionPromise
+    if (activeExecution || status.value === 'running' || status.value === 'recovering') {
+      manualPauseRequested = true
+      interruptExecution()
+      status.value = 'recovering'
+      recoveryMessage.value = '正在安全停止当前执行器并重置筛选队列。'
+      const resetPromise = (async () => {
+        await activeExecution?.catch(() => undefined)
+        await runCoordinator.pause().catch((error) => {
+          logger.warn('保存重置前暂停状态失败', normalizeLogError(error))
+        })
+        const checkpoint = await runCoordinator.resetFilters()
+        hydrateCheckpoint(checkpoint)
+        manualPauseRequested = false
+        status.value = 'pending'
+        stopReason.value = null
+        errorMessage.value = null
+        recoveryMessage.value = null
+        helper.jobList.value.forEach((job) => {
+          const result = helper.jobResultMaps.get(job.key)
+          if (!result || result.status === 'success') return
+          result.msg = '等待中'
+          result.status = 'wait'
+        })
+      })()
+      executionPromise = resetPromise
+      void resetPromise.finally(() => {
+        if (executionPromise === resetPromise) executionPromise = null
+      })
+      return
+    }
+
     status.value = 'pending'
     stopReason.value = null
     errorMessage.value = null
     recoveryMessage.value = null
     helper.jobList.value.forEach((job) => {
-      const v = helper.jobResultMaps.get(job.key)
-      if (!v || v.status === 'success') {
-        return
-      }
-      v.msg = '等待中'
-      v.status = 'wait'
+      const result = helper.jobResultMaps.get(job.key)
+      if (!result || result.status === 'success') return
+      result.msg = '等待中'
+      result.status = 'wait'
     })
     void runCoordinator
       .resetFilters()
