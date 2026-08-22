@@ -46,8 +46,9 @@ for (const pattern of accessiblePatterns) {
     `No artifact matches ${pattern}`,
   )
 }
-assert.ok(accessiblePatterns.includes('boss.js'))
-assert.ok(accessiblePatterns.includes('chunks/*'), 'Lazy UI chunks must be web accessible')
+assert.ok(accessiblePatterns.includes('chat-socket-main-world.js'))
+assert.ok(!accessiblePatterns.includes('boss.js'), 'Privileged boss.js must not be page-accessible')
+assert.ok(!files.includes('boss.js'), 'Privileged boss.js artifact must not be emitted')
 
 const optionsHtml = readFileSync(path.join(outputDirectory, 'options.html'), 'utf8')
 assert.match(optionsHtml, /<html lang="zh-CN">/)
@@ -61,30 +62,20 @@ for (const match of optionsHtml.matchAll(/(?:src|href)="\/?([^"#?]+)"/g)) {
   assert.ok(files.includes(reference), `Options references missing file: ${reference}`)
 }
 
-const bossEntrypoint = readFileSync(path.join(outputDirectory, 'boss.js'), 'utf8')
-const initialChunkMatch = bossEntrypoint.match(/from\s+["']\.\/(chunks\/boss-index-[^"']+\.js)["']/)
-assert.ok(initialChunkMatch, 'Chrome boss entrypoint must load an ES module chunk')
-const initialChunk = initialChunkMatch[1]
-const initialChunkPath = path.join(outputDirectory, ...initialChunk.split('/'))
-const initialChunkSource = readFileSync(initialChunkPath, 'utf8')
-const initialChunkBytes =
-  statSync(initialChunkPath).size + statSync(path.join(outputDirectory, 'boss.js')).size
+const contentBundlePath = path.join(outputDirectory, 'content-scripts/content.js')
+const contentBundleBytes = statSync(contentBundlePath).size
 assert.ok(
-  initialChunkBytes < 1_800_000,
-  `Initial boss UI exceeds the 1.80 MB raw budget: ${initialChunkBytes} bytes`,
+  contentBundleBytes < 2_000_000,
+  `Isolated content UI exceeds the 2.00 MB raw budget: ${contentBundleBytes} bytes`,
 )
-
-for (const feature of ['Config', 'AI', 'Logs', 'About']) {
-  assert.ok(
-    files.some((file) => new RegExp(`^chunks/boss-${feature}-[^/]+\\.js$`).test(file)),
-    `${feature} lazy chunk is missing`,
-  )
-  assert.match(
-    initialChunkSource,
-    new RegExp(`import\\(["']\\./boss-${feature}-`),
-    `${feature} must be loaded with a dynamic import`,
-  )
-}
+const contentBundle = readFileSync(contentBundlePath, 'utf8')
+assert.match(contentBundle, /__boss-helper-background__/)
+assert.doesNotMatch(contentBundle, /boss-helper:content:.*:injector/)
+assert.doesNotMatch(contentBundle, /bossHelperBridgeToken/)
+assert.ok(
+  files.every((file) => !/^chunks\/boss-(?:index|Config|AI|Logs|About)-/.test(file)),
+  'Legacy page-accessible boss UI chunks must not be emitted',
+)
 
 assert.ok(
   (manifest.content_scripts ?? []).some((entry) =>
@@ -100,5 +91,5 @@ assert.ok(
 )
 
 console.log(
-  `built artifact verification passed (initial boss UI ${initialChunkBytes} bytes, ${files.length} files)`,
+  `built artifact verification passed (isolated content UI ${contentBundleBytes} bytes, ${files.length} files)`,
 )

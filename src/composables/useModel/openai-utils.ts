@@ -193,8 +193,9 @@ export function mergeAdvancedRequestBody(
 }
 
 export function normalizeOpenaiConfig<T extends Record<string, any>>(conf: T): T {
+  const { url: legacyUrl, ...rest } = conf
   const advanced = {
-    ...(conf.advanced ?? {}),
+    ...(rest.advanced ?? {}),
   } as Record<string, any>
 
   advanced.extra_headers = normalizeObjectField(advanced.extra_headers, 'advanced.extra_headers')
@@ -202,12 +203,16 @@ export function normalizeOpenaiConfig<T extends Record<string, any>>(conf: T): T
   advanced.tools = normalizeArrayField(advanced.tools, 'advanced.tools')
 
   return {
-    ...conf,
+    ...rest,
     base_url:
-      typeof conf.base_url === 'string' ? normalizeOpenaiBaseUrl(conf.base_url) : conf.base_url,
+      typeof rest.base_url === 'string'
+        ? normalizeOpenaiBaseUrl(rest.base_url)
+        : typeof legacyUrl === 'string'
+          ? normalizeOpenaiBaseUrl(legacyUrl)
+          : rest.base_url,
     other: {
-      ...(conf.other ?? {}),
+      ...(rest.other ?? {}),
     },
     advanced,
-  }
+  } as unknown as T
 }

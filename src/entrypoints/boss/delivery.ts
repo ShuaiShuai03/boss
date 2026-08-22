@@ -1,18 +1,22 @@
-import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
+import {
+  TaskRegistry,
+  recordSuccessfulDuplicateContact,
+  taskResult,
+} from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
+import type { BossPageDetail, BossPageJobItem } from '@/message/pageProtocol'
 
 import type { BossHelperCtx } from './main'
 import { requestDetail, sendPublishReq } from './requests'
-import { BossZpJobItemData, BossZpDetailData } from './types'
 
 export type BoosJobData = {
-  jobitem: BossZpJobItemData
-  detail: BossZpDetailData
+  jobitem: BossPageJobItem
+  detail: BossPageDetail
 }
 
 const tasks = new TaskRegistry<BossHelperCtx, BoosJobData>()
 
-function detailMatchesJob(detail: BossZpDetailData | undefined, job: BossZpJobItemData) {
+function detailMatchesJob(detail: BossPageDetail | undefined, job: BossPageJobItem) {
   return (
     detail != null &&
     (detail.lid === job.lid ||
@@ -23,11 +27,11 @@ function detailMatchesJob(detail: BossZpDetailData | undefined, job: BossZpJobIt
 
 async function waitForPageDetail(
   helper: BossHelperCtx,
-  job: BossZpJobItemData,
+  job: BossPageJobItem,
   timeoutMs = 8000,
   signal?: AbortSignal,
-): Promise<BossZpDetailData> {
-  return new Promise<BossZpDetailData>((resolve, reject) => {
+): Promise<BossPageDetail> {
+  return new Promise<BossPageDetail>((resolve, reject) => {
     let timeout: ReturnType<typeof setTimeout> | undefined
     let interval: ReturnType<typeof setInterval> | undefined
     const cleanup = () => {
@@ -58,9 +62,9 @@ async function waitForPageDetail(
 }
 
 async function requestDetailFallback(
-  job: BossZpJobItemData,
+  job: BossPageJobItem,
   signal?: AbortSignal,
-): Promise<BossZpDetailData> {
+): Promise<BossPageDetail> {
   const lids = Array.from(new Set([job.lid, job.encryptJobId].filter(Boolean)))
   const errors: string[] = []
 
@@ -96,6 +100,7 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
             const newlySubmitted = await taskContext.helper.workflow.confirmSubmission(jobData.key)
             state.deliverySubmitted = true
             state.deliveryNewlySubmitted = newlySubmitted
+            await recordSuccessfulDuplicateContact(taskContext.helper.uid, jobData)
             state.deliveryRecovered = true
             logger.info('恢复时通过已沟通状态确认投递结果')
             return {
@@ -123,17 +128,31 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   defineTaskHandler(
     '岗位详情获取',
     () => async (ctx, job) => {
-      ctx.helper._clickJobCardAction(job.rawData.jobitem)
-      const detail = await waitForPageDetail(
-        ctx.helper,
-        job.rawData.jobitem,
-        8000,
-        ctx.signal,
-      ).catch(async (pageError) => {
-        if (ctx.signal?.aborted) throw pageError
-        logger.warn('页面岗位详情获取失败，尝试接口获取', pageError)
-        return requestDetailFallback(job.rawData.jobitem, ctx.signal)
-      })
+      await ctx.helper.selectJob(job.rawData.jobitem)
+      const deadlineController = new AbortController()
+      const deadlineTimer = window.setTimeout(
+        () => deadlineController.abort(new Error('岗位详情获取总超时')),
+        12_000,
+      )
+      const onAbort = () => deadlineController.abort(ctx.signal?.reason)
+      if (ctx.signal?.aborted) onAbort()
+      else ctx.signal?.addEventListener('abort', onAbort, { once: true })
+      let detail: BossPageDetail
+      try {
+        detail = await waitForPageDetail(
+          ctx.helper,
+          job.rawData.jobitem,
+          8000,
+          deadlineController.signal,
+        ).catch(async (pageError) => {
+          if (deadlineController.signal.aborted) throw pageError
+          logger.warn('页面岗位详情获取失败，尝试接口获取', pageError)
+          return requestDetailFallback(job.rawData.jobitem, deadlineController.signal)
+        })
+      } finally {
+        window.clearTimeout(deadlineTimer)
+        ctx.signal?.removeEventListener('abort', onAbort)
+      }
 
       job.rawData.detail = detail
       job.jobData = {
@@ -156,6 +175,18 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
           introduce: detail.brandComInfo.introduce,
           stageName: detail.brandComInfo.stageName,
         },
+      }
+      if (
+        ctx.helper.workflow?.submissionPending(job.jobData.key) &&
+        detail.relationInfo?.beFriend
+      ) {
+        ctx.ensureActive?.()
+        const newlySubmitted = await ctx.helper.workflow.confirmSubmission(job.jobData.key)
+        job.state.deliverySubmitted = true
+        job.state.deliveryNewlySubmitted = newlySubmitted
+        job.state.deliveryRecovered = true
+        await recordSuccessfulDuplicateContact(ctx.helper.uid, job.jobData)
+        ctx.ensureActive?.()
       }
     },
     {
@@ -195,6 +226,7 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
       const newlySubmitted = await ctx.helper.workflow!.confirmSubmission(jobData.key)
       state.deliverySubmitted = true
       state.deliveryNewlySubmitted = newlySubmitted
+      await recordSuccessfulDuplicateContact(ctx.helper.uid, jobData)
       state.deliveryRecovered = true
       logger.info('恢复时确认岗位已经投递')
       return {
@@ -209,7 +241,6 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
         securityId: rawData.jobitem.securityId,
         encryptJobId: rawData.jobitem.encryptJobId,
       },
-      undefined,
       3,
       {},
       taskContext.signal,
@@ -217,6 +248,7 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
     taskContext.ensureActive?.()
     const newlySubmitted = await ctx.helper.workflow!.confirmSubmission(jobData.key)
     state.deliverySubmitted = true
+    await recordSuccessfulDuplicateContact(ctx.helper.uid, jobData)
     state.deliveryNewlySubmitted = newlySubmitted
     return {
       status: 'success',

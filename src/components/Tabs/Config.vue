@@ -314,24 +314,26 @@ const toggleRules = computed(() => {
             <span class="rules-section-en">GREETING</span>
           </summary>
           <div class="rules-section-body" data-help="自定义招呼语配置">
-            <UFormField
-              :label="formInfoData.customGreeting.label"
-              :data-help="formInfoData.customGreeting['data-help']"
-              class="rules-field-wide"
-            >
-              <div class="rules-greeting">
-                <UCheckbox
-                  v-model="conf.formData.customGreeting.enable"
-                  :aria-label="`启用${formInfoData.customGreeting.label}`"
-                />
+            <div class="rules-greeting rules-field-wide">
+              <UCheckbox
+                id="boss-helper-custom-greeting-enabled"
+                v-model="conf.formData.customGreeting.enable"
+                :aria-label="`启用${formInfoData.customGreeting.label}`"
+              />
+              <UFormField
+                :label="formInfoData.customGreeting.label"
+                :data-help="formInfoData.customGreeting['data-help']"
+                class="flex-1"
+              >
                 <UTextarea
+                  id="boss-helper-custom-greeting-value"
                   v-model="conf.formData.customGreeting.value"
                   :rows="3"
                   aria-label="自定义招呼语内容"
-                  class="flex-1"
+                  class="w-full"
                 />
-              </div>
-            </UFormField>
+              </UFormField>
+            </div>
             <UCheckbox
               v-if="conf.configLevel.expert"
               v-bind="formInfoData.greetingVariable"

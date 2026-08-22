@@ -5,6 +5,8 @@ export type WorkflowStopReasonCode =
   | 'no_jobs'
   | 'no_more_jobs'
   | 'context_invalidated'
+  | 'limit_reached'
+  | 'rate_limited'
   | 'unexpected_error'
 
 export interface WorkflowStopReason {
@@ -24,6 +26,8 @@ const stopReasonMeta: Record<
   no_jobs: { title: '当前页面没有可处理岗位', severity: 'warning' },
   no_more_jobs: { title: '没有更多岗位', severity: 'info' },
   context_invalidated: { title: '扩展已更新，需要刷新页面', severity: 'error' },
+  limit_reached: { title: '已达到平台上限', severity: 'error' },
+  rate_limited: { title: '平台请求频繁，已暂停', severity: 'warning' },
   unexpected_error: { title: '工作流发生错误', severity: 'error' },
 }
 

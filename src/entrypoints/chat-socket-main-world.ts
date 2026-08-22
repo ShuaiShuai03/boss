@@ -71,6 +71,10 @@ function currentUser() {
 // so early messages are buffered here and replayed once identity resolves (BH-CHAT-03).
 const pendingBytes = new BoundedBuffer<Uint8Array>(20)
 const decodeErrorLogGate = new RateLimitedLogGate(5000)
+const pendingIdentityRetryIntervalMs = 250
+const pendingIdentityRetryWindowMs = 60_000
+let pendingIdentityRetryTimer: number | undefined
+let pendingIdentityRetryDeadline = 0
 let decodeErrorCount = 0
 let identityUnavailableWarned = false
 
@@ -110,6 +114,43 @@ function decodeAndEmit(bytes: Uint8Array, user: ReturnType<typeof currentUser>) 
     }),
   )
 }
+function drainPendingBytesIfReady() {
+  pendingIdentityRetryTimer = undefined
+  const user = currentUser()
+  if (user.uid) {
+    pendingIdentityRetryDeadline = 0
+    identityUnavailableWarned = false
+    for (const buffered of pendingBytes.drain()) {
+      decodeAndEmit(buffered, user)
+    }
+    return true
+  }
+  if (pendingBytes.size === 0) {
+    pendingIdentityRetryDeadline = 0
+    return false
+  }
+  if (Date.now() >= pendingIdentityRetryDeadline) {
+    pendingIdentityRetryDeadline = 0
+    reportCaptureFailure(new Error('current user identity did not become ready'))
+    pendingBytes.drain()
+    return false
+  }
+  pendingIdentityRetryTimer = window.setTimeout(
+    drainPendingBytesIfReady,
+    pendingIdentityRetryIntervalMs,
+  )
+  return false
+}
+
+function schedulePendingBytesDrain() {
+  if (pendingIdentityRetryTimer != null) return
+  pendingIdentityRetryDeadline = Date.now() + pendingIdentityRetryWindowMs
+  pendingIdentityRetryTimer = window.setTimeout(
+    drainPendingBytesIfReady,
+    pendingIdentityRetryIntervalMs,
+  )
+}
+
 
 async function emitAiReplyMessages(data: unknown) {
   const bytes = await socketDataToBytes(data)
@@ -132,6 +173,7 @@ async function emitAiReplyMessages(data: unknown) {
 
   if (!user.uid) {
     pendingBytes.push(bytes)
+    schedulePendingBytesDrain()
     if (!identityUnavailableWarned) {
       identityUnavailableWarned = true
       console.warn('[boss-helper] chat socket: current user identity not ready, buffering message')
@@ -139,10 +181,7 @@ async function emitAiReplyMessages(data: unknown) {
     return
   }
 
-  identityUnavailableWarned = false
-  for (const buffered of pendingBytes.drain()) {
-    decodeAndEmit(buffered, user)
-  }
+  drainPendingBytesIfReady()
   decodeAndEmit(bytes, user)
 }
 

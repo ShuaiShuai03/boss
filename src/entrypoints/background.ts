@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser'
+import { type Browser, browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 
 import {
@@ -6,15 +6,23 @@ import {
   workflowRunIsStale,
   workflowRunRawStorageKey,
 } from '../composables/useApplying/runState'
-import { ProvideBackgroundAdapter, provideBackgroundCounter } from '../message/background'
-
+import {
+  legacyUserStorageKey,
+  ProvideBackgroundAdapter,
+  provideBackgroundCounter,
+} from '../message/background'
+import { executeBossPageOperation } from '../message/pageOperations'
+import { parseBossPageRequest } from '../message/pageProtocol'
 const zhipinTabUrls = ['*://zhipin.com/*', '*://*.zhipin.com/*']
 const workflowWatchdogAlarm = 'boss-helper-workflow-watchdog'
 const workflowOwnerRequestType = 'boss-helper:get-workflow-owner-id'
 
 async function reloadOpenZhipinTabs() {
   const tabs = await browser.tabs.query({ url: zhipinTabUrls })
-  await Promise.all(tabs.map((tab) => (tab.id ? browser.tabs.reload(tab.id) : Promise.resolve())))
+  for (const tab of tabs) {
+    if (tab.id == null) continue
+    await browser.tabs.reload(tab.id)
+  }
 }
 
 async function ensureWorkflowWatchdog() {
@@ -45,10 +53,29 @@ async function wakeStaleWorkflow() {
     ),
   )
 }
+function isAllowedBossPageSender(sender: Browser.runtime.MessageSender) {
+  if (sender.id !== browser.runtime.id || sender.tab?.id == null || sender.frameId !== 0)
+    return false
+  const rawUrl = sender.url ?? sender.tab.url
+  if (!rawUrl) return false
+  try {
+    const url = new URL(rawUrl)
+    const hostname = url.hostname.toLowerCase()
+    return (
+      (hostname === 'zhipin.com' || hostname.endsWith('.zhipin.com')) &&
+      url.pathname.startsWith('/web/geek/job')
+    )
+  } catch {
+    return false
+  }
+}
 
 export default defineBackground({
   main() {
     provideBackgroundCounter(new ProvideBackgroundAdapter())
+    void browser.storage.local.remove(legacyUserStorageKey).catch((error) => {
+      console.error('清理旧版账号 Cookie 数据失败', error)
+    })
     void ensureWorkflowWatchdog().catch((error) => {
       console.error('创建工作流看门狗失败', error)
     })
@@ -59,6 +86,20 @@ export default defineBackground({
       })
     })
     browser.runtime.onMessage.addListener((message, sender) => {
+      const pageRequest = parseBossPageRequest(message)
+      if (pageRequest) {
+        if (!isAllowedBossPageSender(sender)) {
+          return Promise.resolve({ ok: false, error: '页面操作来源不受信任' })
+        }
+        const tabId = sender.tab?.id
+        if (tabId == null) return Promise.resolve({ ok: false, error: '页面操作缺少标签页 ID' })
+        return executeBossPageOperation(pageRequest, tabId)
+          .then((value) => ({ ok: true, value }))
+          .catch((error) => ({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }))
+      }
       if (
         typeof message !== 'object' ||
         message === null ||
@@ -71,8 +112,12 @@ export default defineBackground({
       ) {
         return
       }
-      if (sender.tab?.id == null) throw new Error('工作流消息缺少标签页来源')
-      return Promise.resolve({ ownerId: `tab:${sender.tab.id}:runtime:${message.runtimeId}` })
+      if (!isAllowedBossPageSender(sender)) {
+        throw new Error('工作流消息缺少可信标签页来源')
+      }
+      const tabId = sender.tab?.id
+      if (tabId == null) throw new Error('工作流消息缺少标签页 ID')
+      return Promise.resolve({ ownerId: `tab:${tabId}:runtime:${message.runtimeId}` })
     })
     browser.runtime.onInstalled.addListener(() => {
       void reloadOpenZhipinTabs().catch((error) => {

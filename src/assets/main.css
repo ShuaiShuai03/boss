@@ -600,7 +600,7 @@ body {
     align-items: center;
     gap: 8px;
     padding: 9px 14px;
-    background: var(--state-soft);
+    background: var(--cr-surf3);
     border-bottom: 1px solid var(--cr-line);
     font: 700 10px/1 var(--cr-mono);
     letter-spacing: 0.14em;

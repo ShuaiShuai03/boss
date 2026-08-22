@@ -125,6 +125,15 @@ export function migrateFormData(source: Partial<FormData>, defaultFormData: Form
       prompt: jsonClone(defaultFormData.aiReply.prompt),
     }
   }
+  const legacyDeliveryInterval = migrated.delay?.deliveryInterval
+  if (
+    migrated.actionDelayMs?.value == null &&
+    typeof legacyDeliveryInterval === 'number' &&
+    Number.isFinite(legacyDeliveryInterval) &&
+    legacyDeliveryInterval >= 0
+  ) {
+    migrated.actionDelayMs = { value: legacyDeliveryInterval * 1000 }
+  }
   migrated.dailyLimit ??= {
     value: migrated.deliveryLimit?.value ?? defaultFormData.dailyLimit.value,
   }

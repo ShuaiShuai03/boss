@@ -74,7 +74,7 @@ function toggleRun() {
 }
 
 const pageCurrent = computed(() =>
-  workflow.value && workflow.value.total.value > 0 ? workflow.value.current.value + 1 : 0,
+  workflow.value && workflow.value.total.value > 0 ? workflow.value.current.value : 0,
 )
 const pageTotal = computed(() => workflow.value?.total.value ?? 0)
 const failures = computed(() => workflow.value?.consecutiveFailures.value ?? 0)

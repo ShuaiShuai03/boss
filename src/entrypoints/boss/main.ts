@@ -2,21 +2,21 @@ import { UserContent } from 'ai'
 import { ref } from 'vue'
 
 import { appearanceConf } from '@/composables/conf'
+import { checkJobCache } from '@/composables/useApplying'
 import { GreetError } from '@/composables/useApplying/deliverError'
 import { createLazyObject, WorkflowData } from '@/composables/useApplying/type'
 import { HelperContext, JobData } from '@/composables/useHelper'
-import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { Message } from '@/composables/useWebSocket/protobuf'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
-import { createBossHelperJobElement, run } from '@/index'
+import { createBossHelperJobElement, disposeBossHelperJobElement, run } from '@/index'
+import { type BossPageGateway } from '@/message/pageGateway'
+import type { BossPageJobItem } from '@/message/pageProtocol'
 import { resolveBossUser, waitForBossUser } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
 import { BoosJobData, bossWorkflow } from './delivery'
 import { requestBossData } from './requests'
-import { BossZpDetailData, BossZpJobItemData } from './types'
-
-const runtimeSymbol = Symbol.for('boss-helper:runtime')
+let activeBossHelper: BossHelperCtx | undefined
 
 function viewDisposedError() {
   const error = new Error('页面资源已释放')
@@ -29,6 +29,7 @@ function waitForElement<E extends Element>(selectors: string, signal: AbortSigna
   if (existing) return Promise.resolve(existing)
 
   return new Promise<E>((resolve, reject) => {
+    let timeout: number | undefined
     const observer = new MutationObserver(() => {
       const element = document.querySelector<E>(selectors)
       if (!element) return
@@ -40,11 +41,16 @@ function waitForElement<E extends Element>(selectors: string, signal: AbortSigna
       reject(viewDisposedError())
     }
     const cleanup = () => {
+      if (timeout != null) window.clearTimeout(timeout)
       observer.disconnect()
       signal.removeEventListener('abort', onAbort)
     }
     if (signal.aborted) return onAbort()
     signal.addEventListener('abort', onAbort, { once: true })
+    timeout = window.setTimeout(() => {
+      cleanup()
+      reject(new Error(`未找到岗位页面元素: ${selectors}`))
+    }, 20_000)
     observer.observe(document.documentElement, { childList: true, subtree: true })
   })
 }
@@ -63,17 +69,20 @@ function removeAd() {
   const removeMatches = () => {
     document.querySelectorAll(selectors.join(',')).forEach((element) => element.remove())
   }
-  const observer = new MutationObserver(removeMatches)
+  let scanScheduled = false
+  const scheduleRemove = () => {
+    if (scanScheduled) return
+    scanScheduled = true
+    queueMicrotask(() => {
+      scanScheduled = false
+      removeMatches()
+    })
+  }
+  const observer = new MutationObserver(scheduleRemove)
   observer.observe(document.body, { childList: true, subtree: true })
   removeMatches()
   return () => observer.disconnect()
 }
-
-const initChange = useHookVueFn('#wrap .page-job-wrapper', 'pageChangeAction')
-const initSearch = useHookVueFn('#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main', [
-  'searchJobAction',
-  'onSearch',
-])
 
 function isBossJobRoute(path: string) {
   return path.startsWith('/web/geek/job')
@@ -91,11 +100,13 @@ function formatActiveTime(timestamp: number): string {
   return '较久未活跃'
 }
 
-function convertBossZpJobItemToJobData(item: BossZpJobItemData): JobData {
+function convertBossZpJobItemToJobData(item: BossPageJobItem): JobData {
   const key = `boss::${item.encryptJobId}`
 
   return {
     key,
+    duplicateCompanyId: item.encryptBrandId,
+    duplicateHrId: item.encryptBossId,
     link: `https://www.zhipin.com/job_detail/${item.encryptJobId}.html`,
     jobName: item.jobName,
     positionName: item.jobName,
@@ -184,35 +195,30 @@ async function waitForJobPageChange(changed: () => boolean, timeoutMs = 10000, i
 }
 
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}> {
-  _page = ref({ page: 1, pageSize: 15 })
-  _pageHasMore = ref(true)
-  _jobDetail = ref<BossZpDetailData>()
-  _pageChange = (_v: number) => {
-    throw new Error('pageChange is undefined')
-  }
-  _clickJobCardAction = (_: BossZpJobItemData) => {}
-  _jobList: Ref<BossZpJobItemData[]>
+  _page: Ref<{ page: number; pageSize: number }>
+  _pageHasMore: Ref<boolean>
+  _jobDetail: Ref<BoosJobData['detail'] | undefined>
+  _jobList: Ref<BossPageJobItem[]>
   _jobDataMap: Map<string, BoosJobData>
 
-  rootVue: any = null
   jobMaps: Map<string, WorkflowData<BoosJobData, {}>>
   jobList: Ref<JobData[]>
+  private gateway: BossPageGateway
   private mountPromise: Promise<void> | null = null
   private pendingMountPath: string | null = null
   private reconciliationPromise: Promise<void> | null = null
 
-  constructor() {
-    const jobList = ref<JobData[]>([])
-    const _jobList = ref<BossZpJobItemData[]>([])
-    const _jobListMap = new Map<string, BoosJobData>()
-
+  constructor(gateway: BossPageGateway) {
     super()
-
-    this.jobList = jobList
-    this._jobList = _jobList
-    this._jobDataMap = _jobListMap
-
+    this.gateway = gateway
+    this._page = gateway.page
+    this._pageHasMore = gateway.hasMore
+    this._jobDetail = gateway.detail
+    this._jobList = gateway.jobs
+    this._jobDataMap = new Map()
+    this.jobList = ref<JobData[]>([])
     this.jobMaps = reactive(new Map())
+    this.registerDisposer(watch(gateway.jobs, () => this.syncJobList(), { immediate: true }))
   }
 
   get uid() {
@@ -233,14 +239,12 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   _resolveUser() {
-    return resolveBossUser(window._PAGE, this.rootVue?.$store?.state?.userInfo)
+    return resolveBossUser(this.gateway.user.value)
   }
 
-  static async new() {
-    const ctx = new BossHelperCtx()
-    ctx.rootVue = await getRootVue()
-    ctx.workflow = await bossWorkflow(ctx)
-    const user = await waitForBossUser(() => [window._PAGE, ctx.rootVue?.$store?.state?.userInfo], {
+  static async new(gateway: BossPageGateway) {
+    const ctx = new BossHelperCtx(gateway)
+    const user = await waitForBossUser(() => [gateway.user.value], {
       requireProtocolUserId: true,
     })
     if (!user.accountId || !user.protocolUserId) {
@@ -249,6 +253,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
         title: '未获取到用户ID，可能会出现奇怪bug, 请尝试刷新页面或反馈',
       })
     }
+    ctx.workflow = await bossWorkflow(ctx)
     return ctx
   }
 
@@ -263,7 +268,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       const oldFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
 
       this.logs.info('开始翻页', `从第 ${oldPage} 页请求下一页`)
-      this._pageChange(oldPage + 1)
+      await this.gateway.changePage(oldPage + 1)
       const changed = await waitForJobPageChange(() => {
         const currentFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
         return this._page.value.page !== oldPage || oldFirstJobId !== currentFirstJobId
@@ -287,6 +292,10 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       return false
     }
     return true
+  }
+  async selectJob(job: BossPageJobItem) {
+    await this.gateway.selectJob(job.encryptJobId)
+    await this.gateway.refresh()
   }
 
   async start() {
@@ -325,13 +334,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       })
       return
     }
-    if (!this.workflow) {
-      this.workflow = await bossWorkflow(this)
-    }
-    await this.workflow.executeAll(this._jobDataMap)
+    const workflow = this.workflow ?? (this.workflow = await bossWorkflow(this))
+    await workflow.executeAll(this._jobDataMap)
   }
 
-  async sendMessage(jobKey: string, msg: UserContent) {
+  async sendMessage(jobKey: string, msg: UserContent, signal?: AbortSignal) {
     const data = this.jobMaps.get(jobKey)
     if (!data) {
       throw new GreetError('未找到岗位上下文')
@@ -350,9 +357,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       },
       {
         bossSrc: data.rawData.detail.bossInfo.bossSource,
+        signal,
       },
     )
 
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
     data.state.bossData = bossData
     data.state.message = content
 
@@ -368,11 +377,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       content,
     })
 
-    await message.send()
+    await message.send(signal)
     logger.info('消息发送成功', { jobKey, bossId: bossData.data.encryptBossId })
   }
 
-  async sendChatMessage(target: AiReplySendTarget) {
+  async sendChatMessage(target: AiReplySendTarget, signal?: AbortSignal) {
     const content = target.text.trim()
     if (!content) {
       throw new Error('回复内容为空')
@@ -392,12 +401,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       content,
     })
 
-    await message.send()
+    await message.send(signal)
     logger.info('聊天消息发送成功', { conversationId: target.conversationId, toUid: target.toUid })
   }
-
   async onMount(path?: string) {
-    this.pendingMountPath = path ?? String(this.rootVue.$route.path ?? '')
+    this.pendingMountPath = path ?? this.gateway.path.value
     if (this.mountPromise) return this.mountPromise
     this.mountPromise = (async () => {
       while (this.pendingMountPath !== null) {
@@ -430,18 +438,12 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       this.reconciliationPromise = null
     }
   }
-
   private async mountView(path?: string) {
-    const routePath = path ?? String(this.rootVue.$route.path ?? '')
+    const routePath = path ?? this.gateway.path.value
     if (!isBossJobRoute(routePath)) {
       this.disposeView()
       return
     }
-    // TODO: 移除menu, 可能导致nuxtui实例冲突
-    // if (!document.querySelector('boss-helper-menu')) {
-    //   const menuElement = document.createElement('boss-helper-menu')
-    //   document.body.appendChild(menuElement)
-    // }
 
     if (document.querySelector('boss-helper-job')) return
 
@@ -462,15 +464,15 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     const appElement = createBossHelperJobElement(this)
 
     elm.insertBefore(appElement, elm.firstChild)
+    this.registerViewDisposer(() => disposeBossHelperJobElement(appElement))
     this.registerViewDisposer(removeAd())
 
     try {
-      await this._initPage(viewController.signal)
-      await this._initPageChange(viewController.signal)
-      await this._initJobDetail(viewController.signal)
-      await this._initClickJobCardAction(viewController.signal)
-      await this._initJobList(viewController.signal)
-      await this.reconcileWorkflow('view_mount')
+      await this.gateway.refresh()
+      this.syncJobList()
+      await this.reconcileWorkflow('view_mount').catch((error) => {
+        logger.warn('工作流挂载恢复失败', error)
+      })
 
       this.initNetConf()
       const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
@@ -478,217 +480,120 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       this.registerViewDisposer(
         watch(
           appearanceConf.value,
-          (v) => {
+          (value) => {
             if (!contentElm) return
             contentElm.style.marginRight =
-              v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
+              value.leftChat && value.contentOffset != 25 ? `${value.contentOffset}%` : 'unset'
             contentElm.style.marginLeft =
-              !v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'unset'
+              !value.leftChat && value.contentOffset != 25 ? `${value.contentOffset}%` : 'unset'
           },
           { immediate: true },
         ),
       )
     } catch (error) {
-      appElement.remove()
+      disposeBossHelperJobElement(appElement)
       this.disposeView()
       throw error
     }
   }
 
-  async _initJobList(signal?: AbortSignal) {
-    this.registerViewDisposer(
-      await useHookVueData(
-        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-        'jobList',
-        this._jobList,
-        (v) => {
-          this.jobList.value = v.map((item) => {
-            // const jobData = convertBossZpJobItemToJobData(item)
-            // if (this.conf.formData.useCache.value) {
-            //   const cacheCheck = checkJobCache(jobData.key)
-            //   if (cacheCheck) {
-            //     jobData.status = {
-            //       status: cacheCheck.status,
-            //       msg: `${cacheCheck.message} (缓存)`,
-            //     }
-            //   }
-            // }
-            const job = convertBossZpJobItemToJobData(item)
-
-            let jobData = this._jobDataMap.get(job.key)
-            if (jobData) {
-              jobData = {
-                ...jobData,
-                jobitem: item,
-              }
-            } else {
-              jobData = {
-                jobitem: item,
-                detail: createLazyObject('岗位详情获取'),
-              }
-            }
-            this._jobDataMap.set(job.key, jobData)
-
-            return job
+  private syncJobList() {
+    this.jobList.value = this._jobList.value.map((item) => {
+      const job = convertBossZpJobItemToJobData(item)
+      if (this.conf.formData.useCache.value) {
+        const cached = checkJobCache(job.key)
+        if (cached) {
+          this.jobResultMaps.set(job.key, {
+            status: cached.status,
+            msg: `${cached.message} (缓存)`,
           })
-          this.jobList.value.forEach((job) => {
-            this.jobMaps.set(job.key, {
-              jobData: job,
-              rawData: this._jobDataMap.get(job.key)!,
-              state: {},
-            })
-          })
-        },
-      )(signal),
-    )
-  }
+        }
+      }
 
-  async _initPage(signal?: AbortSignal) {
-    this.registerViewDisposer(
-      await useHookVueData(
-        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-        'pageVo',
-        this._page,
-      )(signal),
-    )
-    this.registerViewDisposer(
-      await useHookVueData(
-        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-        'hasMore',
-        this._pageHasMore,
-      )(signal),
-    )
-  }
-
-  async _initJobDetail(signal?: AbortSignal) {
-    this.registerViewDisposer(
-      await useHookVueData(
-        '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-        'jobDetail',
-        this._jobDetail,
-      )(signal),
-    )
-  }
-
-  async _initPageChange(signal?: AbortSignal) {
-    let pc =
-      location.href.includes('/web/geek/job-recommend') || location.href.includes('/web/geek/jobs')
-        ? await initSearch(signal)
-        : await initChange(signal)
-    if (!pc) {
-      throw new Error('pageChange is undefined')
-    }
-    this._pageChange = pc
-  }
-
-  async _initClickJobCardAction(signal?: AbortSignal) {
-    this._clickJobCardAction = await useHookVueFn(
-      '#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main',
-      'clickJobCardAction',
-    )(signal)
+      const existingRawData = this._jobDataMap.get(job.key)
+      const rawData = existingRawData
+        ? { ...existingRawData, jobitem: item }
+        : { jobitem: item, detail: createLazyObject<BoosJobData['detail']>('岗位详情获取') }
+      this._jobDataMap.set(job.key, rawData)
+      const existingWorkflowData = this.jobMaps.get(job.key)
+      this.jobMaps.set(job.key, {
+        jobData: job,
+        rawData,
+        state: existingWorkflowData?.state ?? {},
+      })
+      return job
+    })
   }
 }
 
-export async function runBossHelper() {
-  //   document.documentElement.classList.toggle(
-  //     "dark",
-  //     GM_getValue("theme-dark", false)
-  //   );
-
-  const runtimeWindow = window as typeof window & Record<symbol, BossHelperCtx | undefined>
-  const previousRuntime = runtimeWindow[runtimeSymbol]
-  if (previousRuntime) {
+export async function runBossHelper(gateway: BossPageGateway) {
+  if (activeBossHelper) {
     logger.info('检测到内容脚本重连，交接工作流执行租约')
-    await previousRuntime.disposeForLifecycle('content_reconnect')
-    document.querySelector('boss-helper-job')?.remove()
+    await activeBossHelper.disposeForLifecycle('content_reconnect')
   }
 
-  const bossHelpCtx = await BossHelperCtx.new()
-  runtimeWindow[runtimeSymbol] = bossHelpCtx
+  const bossHelpCtx = await BossHelperCtx.new(gateway)
+  activeBossHelper = bossHelpCtx
   bossHelpCtx.registerDisposer(() => {
-    if (runtimeWindow[runtimeSymbol] === bossHelpCtx) delete runtimeWindow[runtimeSymbol]
+    if (activeBossHelper === bossHelpCtx) activeBossHelper = undefined
   })
 
-  let pendingRouteObserver: MutationObserver | null = null
+  let mountScheduled = false
   const mountForRoute = (path: string) => {
-    pendingRouteObserver?.disconnect()
-    pendingRouteObserver = null
-    const existingHost = document.querySelector('boss-helper-job')
     if (!isBossJobRoute(path)) {
-      existingHost?.remove()
       bossHelpCtx.disposeView()
       return
     }
-    if (!existingHost) {
-      void bossHelpCtx.onMount(path).catch((e) => {
-        logger.error('页面切换初始化失败', e)
+    if (document.querySelector('boss-helper-job') || mountScheduled) return
+    mountScheduled = true
+    void bossHelpCtx
+      .onMount(path)
+      .catch((error) => {
+        logger.error('页面切换初始化失败', error)
       })
-      return
-    }
-
-    const remountWhenDisconnected = () => {
-      if (existingHost.isConnected) return
-      pendingRouteObserver?.disconnect()
-      pendingRouteObserver = null
-      void bossHelpCtx.onMount(path).catch((e) => {
-        logger.error('页面切换初始化失败', e)
+      .finally(() => {
+        mountScheduled = false
       })
-    }
-    pendingRouteObserver = new MutationObserver(remountWhenDisconnected)
-    pendingRouteObserver.observe(document.documentElement, { childList: true, subtree: true })
-    queueMicrotask(remountWhenDisconnected)
   }
-  const routeHook = (to: {
-    name: string
-    meta: {
-      notLogin: boolean
-      wrapClassName: string
-      scrollBehavior: string
-      hideFooter: boolean
-      headerV2: boolean
-    }
-    path: string
-    hash: string
-    query: {
-      ka: string
-    }
-    params: {}
-    fullPath: string
-  }) => {
-    mountForRoute(to.path)
-  }
-  bossHelpCtx.rootVue.$router.afterHooks.push(routeHook)
+  const routeTimer = window.setInterval(() => mountForRoute(gateway.path.value), 250)
+  const stopRouteWatch = watch(gateway.path, mountForRoute, { immediate: true })
   bossHelpCtx.registerDisposer(() => {
-    pendingRouteObserver?.disconnect()
-    pendingRouteObserver = null
-    const index = bossHelpCtx.rootVue.$router.afterHooks.indexOf(routeHook)
-    if (index >= 0) bossHelpCtx.rootVue.$router.afterHooks.splice(index, 1)
+    stopRouteWatch()
+    window.clearInterval(routeTimer)
   })
 
-  const reconcileFromLifecycle = (trigger: string) => {
+  const reconcileFromLifecycle = (trigger: string, event: Event) => {
+    if (!event.isTrusted && !__BOSS_HELPER_TEST_OPEN_SHADOW__) return
     void bossHelpCtx.reconcileWorkflow(trigger).catch((error) => {
       logger.warn('页面生命周期恢复失败', error)
     })
   }
-  const handleVisibility = () => {
-    if (document.visibilityState === 'visible') reconcileFromLifecycle('visibility')
+  const handleVisibility = (event: Event) => {
+    if (document.visibilityState === 'visible') reconcileFromLifecycle('visibility', event)
   }
-  const handlePageShow = () => reconcileFromLifecycle('pageshow')
-  const handleFocus = () => reconcileFromLifecycle('focus')
-  const handleOnline = () => reconcileFromLifecycle('online')
-  const handleWatchdog = () => reconcileFromLifecycle('watchdog')
+  const handlePageShow = (event: PageTransitionEvent) => reconcileFromLifecycle('pageshow', event)
+  const handleFocus = (event: FocusEvent) => reconcileFromLifecycle('focus', event)
+  const handleOnline = (event: Event) => reconcileFromLifecycle('online', event)
   document.addEventListener('visibilitychange', handleVisibility)
   window.addEventListener('pageshow', handlePageShow)
   window.addEventListener('focus', handleFocus)
   window.addEventListener('online', handleOnline)
-  document.addEventListener('boss-helper:workflow-watchdog', handleWatchdog)
   bossHelpCtx.registerDisposer(() => {
     document.removeEventListener('visibilitychange', handleVisibility)
     window.removeEventListener('pageshow', handlePageShow)
     window.removeEventListener('focus', handleFocus)
     window.removeEventListener('online', handleOnline)
-    document.removeEventListener('boss-helper:workflow-watchdog', handleWatchdog)
   })
 
   await run(bossHelpCtx)
+}
+
+export async function reconcileBossHelperRuntime(trigger: string) {
+  await activeBossHelper?.reconcileWorkflow(trigger)
+}
+
+export async function disposeBossHelperRuntime(trigger: string) {
+  const runtime = activeBossHelper
+  activeBossHelper = undefined
+  await runtime?.disposeForLifecycle(trigger)
 }

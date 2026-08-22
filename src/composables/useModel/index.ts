@@ -62,9 +62,13 @@ function normalizeModelConf(model: unknown): ModelConf {
   }
   const validModel = candidate as ModelConf
   if (!validModel.data) return validModel
+  const { url: legacyUrl, ...data } = validModel.data as Record<string, unknown>
   return {
     ...validModel,
-    data: normalizeOpenaiConfig(validModel.data),
+    data: normalizeOpenaiConfig({
+      ...data,
+      base_url: data.base_url ?? legacyUrl,
+    }) as ModelConf['data'],
   }
 }
 
@@ -80,6 +84,7 @@ export const useModel = () => {
         const localData = await counter.storageGet<unknown>(confModelKey, null)
         const localModels = normalizeStoredModelData(localData, '本地 AI 模型配置', normalizeModelConf)
         if (localModels) {
+          await counter.storageRm(legacyConfModelKey)
           logger.debug('ai模型数据', localModels.map(summarizeModelConfForLog))
           modelData.value = localModels
           initializationStatus.value = 'ready'
@@ -94,6 +99,7 @@ export const useModel = () => {
         )
         if (migrated) {
           await counter.storageSet(confModelKey, migrated)
+          await counter.storageRm(legacyConfModelKey)
           logger.debug('ai模型数据已迁移到 local', migrated.map(summarizeModelConfForLog))
           modelData.value = migrated
           initializationStatus.value = 'ready'

@@ -26,10 +26,11 @@ import {
   pauseWorkflowRun,
   releaseWorkflowRun,
   resumePausedWorkflowRun,
-  workflowRunIsStale,
-  forcePauseWorkflowRun,
   normalizeWorkflowRunCheckpoint,
   resetWorkflowRunFilters,
+  forcePauseWorkflowRun,
+  maxWorkflowHistoryEntries,
+  workflowRunIsStale,
 } from '../src/composables/useApplying/runState.ts'
 import { createWorkflowStopReason } from '../src/composables/useApplying/stopReason.ts'
 import {
@@ -37,10 +38,19 @@ import {
   normalizeStoredModelData,
 } from '../src/composables/useModel/persistence.ts'
 import {
+  aiReplyConversationStorageKey,
   aiReplyDraftTtlMs,
+  sanitizeStoredReplyConversations,
   sanitizeStoredReplyDrafts,
+  serializeReplyConversations,
   serializeReplyDrafts,
 } from '../src/features/aiReply/draftStorage.ts'
+import { BackgroundCounter } from '../src/message/background.ts'
+import {
+  bossPageMessageTypes,
+  parseBossPageRequest,
+  parseBossPageSnapshot,
+} from '../src/message/pageProtocol.ts'
 
 class MemoryStorage {
   values = new Map()
@@ -57,6 +67,145 @@ class MemoryStorage {
     this.values.set(key, structuredClone(value))
     this.writes.push(key)
   }
+  async storageSetItems(items) {
+    if (this.failure) throw this.failure
+    for (const { key, value } of items) {
+      this.values.set(key, structuredClone(value))
+      this.writes.push(key)
+    }
+  }
+}
+assert.deepEqual(parseBossPageRequest({ type: bossPageMessageTypes.snapshot }), {
+  type: bossPageMessageTypes.snapshot,
+})
+assert.deepEqual(parseBossPageRequest({ type: bossPageMessageTypes.changePage, page: 2 }), {
+  type: bossPageMessageTypes.changePage,
+  page: 2,
+})
+assert.deepEqual(
+  parseBossPageRequest({ type: bossPageMessageTypes.selectJob, encryptJobId: 'job-1' }),
+  { type: bossPageMessageTypes.selectJob, encryptJobId: 'job-1' },
+)
+assert.equal(
+  parseBossPageRequest({
+    type: bossPageMessageTypes.selectJob,
+    encryptJobId: 'x'.repeat(501),
+  }),
+  null,
+)
+assert.equal(
+  parseBossPageRequest({ type: 'boss-helper:page-storage-get', key: 'conf-model' }),
+  null,
+)
+assert.equal(
+  parseBossPageRequest({ type: 'boss-helper:page-request', url: 'https://example.com' }),
+  null,
+)
+assert.equal(
+  parseBossPageRequest({
+    type: bossPageMessageTypes.sendChat,
+    packet: [0, 1, 256],
+    payload: [1],
+  }),
+  null,
+)
+assert.equal(
+  parseBossPageRequest({
+    type: bossPageMessageTypes.sendChat,
+    packet: Array(256_001).fill(0),
+    payload: [1],
+  }),
+  null,
+)
+const sanitizedPageSnapshot = parseBossPageSnapshot({
+  path: '/web/geek/jobs',
+  user: { uid: 'user-1', showName: '用户', token: 'must-not-cross' },
+  jobs: [],
+  page: { page: 1, pageSize: 15 },
+  hasMore: false,
+  token: 'must-not-cross',
+})
+assert.equal(sanitizedPageSnapshot?.path, '/web/geek/jobs')
+assert.equal(sanitizedPageSnapshot?.user.uid, 'user-1')
+assert.equal(sanitizedPageSnapshot?.user.showName, '用户')
+assert.deepEqual(sanitizedPageSnapshot?.jobs, [])
+assert.deepEqual(sanitizedPageSnapshot?.page, { page: 1, pageSize: 15 })
+assert.equal(sanitizedPageSnapshot?.hasMore, false)
+assert.equal('token' in (sanitizedPageSnapshot?.user ?? {}), false)
+assert.doesNotMatch(JSON.stringify(sanitizedPageSnapshot), /must-not-cross/)
+let observedAiRequest
+const modelServer = Bun.serve({
+  hostname: '127.0.0.1',
+  port: 0,
+  async fetch(request) {
+    observedAiRequest = {
+      method: request.method,
+      authorization: request.headers.get('authorization'),
+      body: await request.text(),
+    }
+    return Response.json(
+      { choices: [{ message: { role: 'assistant', content: '合法隔离请求成功' } }] },
+      { headers: { 'x-fixture': 'isolated' } },
+    )
+  },
+})
+try {
+  const isolatedBackgroundCounter = new BackgroundCounter()
+  const baseUrl = `http://127.0.0.1:${modelServer.port}/v1`
+  const response = await isolatedBackgroundCounter.aiRequest({
+    baseUrl,
+    url: `${baseUrl}/chat/completions`,
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer fixture-secret',
+      'content-type': 'application/json',
+    },
+    body: '{"messages":[]}',
+    timeoutMs: 5_000,
+  })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers['x-fixture'], 'isolated')
+  assert.match(response.body, /合法隔离请求成功/)
+  assert.deepEqual(observedAiRequest, {
+    method: 'POST',
+    authorization: 'Bearer fixture-secret',
+    body: '{"messages":[]}',
+  })
+  await assert.rejects(
+    () =>
+      isolatedBackgroundCounter.aiRequest({
+        baseUrl,
+        url: `http://127.0.0.1:${modelServer.port}/outside`,
+        method: 'GET',
+        headers: {},
+        timeoutMs: 5_000,
+      }),
+    /不属于已配置的模型 Base URL/,
+  )
+  await assert.rejects(
+    () =>
+      isolatedBackgroundCounter.aiRequest({
+        baseUrl,
+        url: `${baseUrl}/chat/completions`,
+        method: 'DELETE',
+        headers: {},
+        timeoutMs: 5_000,
+      }),
+    /请求方法不受支持/,
+  )
+  await assert.rejects(
+    () =>
+      isolatedBackgroundCounter.aiRequest({
+        baseUrl: 'http://example.com/v1',
+        url: 'http://example.com/v1/models',
+        method: 'GET',
+        headers: {},
+        timeoutMs: 5_000,
+      }),
+    /仅支持 HTTPS 请求/,
+  )
+} finally {
+  await modelServer.stop(true)
 }
 
 assert.equal(formDataKeyForPreset('default'), 'local:web-geek-job-FormData')
@@ -85,6 +234,11 @@ assert.equal(migratedFormData.salaryRange.futureValue, 'preserved')
 assert.equal(migratedFormData.aiFiltering.futureValue, 'preserved')
 assert.deepEqual(migrateFormData(migratedFormData, defaultFormData), migratedFormData)
 assert.equal(legacyFormData.salaryRange.value, '10-20', 'migration must not mutate stored input')
+const migratedLegacyDelay = migrateFormData(
+  { version: '20240401', delay: { deliveryInterval: 7 } },
+  defaultFormData,
+)
+assert.equal(migratedLegacyDelay.actionDelayMs.value, 7000)
 assert.throws(
   () =>
     migrateFormData(
@@ -159,6 +313,30 @@ const staleLeaseRecovery = claimWorkflowRun(
   { ...runClaim, ownerId: 'tab:2:runtime:b' },
   151_001,
 )
+const oversizedCheckpoint = normalizeWorkflowRunCheckpoint({
+  ...runCheckpoint,
+  countedJobKeys: Array.from(
+    { length: maxWorkflowHistoryEntries + 1 },
+    (_, index) => `job-${index}`,
+  ),
+  submissionIntentJobKeys: Array.from(
+    { length: maxWorkflowHistoryEntries + 1 },
+    (_, index) => `job-${index}`,
+  ),
+  submittedJobKeys: Array.from(
+    { length: maxWorkflowHistoryEntries + 1 },
+    (_, index) => `job-${index}`,
+  ),
+  results: Object.fromEntries(
+    Array.from({ length: maxWorkflowHistoryEntries + 1 }, (_, index) => [
+      `job-${index}`,
+      { status: 'success', delivered: true, completedAt: index },
+    ]),
+  ),
+})
+assert.equal(oversizedCheckpoint.countedJobKeys.length, maxWorkflowHistoryEntries)
+assert.equal(oversizedCheckpoint.countedJobKeys[0], 'job-1')
+assert.equal(Object.keys(oversizedCheckpoint.results).length, maxWorkflowHistoryEntries)
 assert.equal(staleLeaseRecovery.claimed, true)
 assert.equal(staleLeaseRecovery.checkpoint.ownerId, 'tab:2:runtime:b')
 assert.equal(staleLeaseRecovery.checkpoint.phase, 'recovering')
@@ -550,6 +728,20 @@ await assert.rejects(
 )
 assert.equal(importedStatistics.todayData.total, 3)
 assert.equal(importStorage.writes.length, writesBeforeInvalidImport)
+importStorage.failure = new Error('fixture import write unavailable')
+await assert.rejects(
+  importedStatistics.setStatistics(
+    JSON.stringify({
+      t: { date: '2026-07-14', total: 9 },
+      s: [],
+    }),
+  ),
+  /fixture import write unavailable/,
+)
+assert.equal(importedStatistics.todayData.total, 3)
+assert.match(importedStatistics.persistenceError.value, /fixture import write unavailable/)
+assert.equal(importStorage.writes.length, writesBeforeInvalidImport)
+importStorage.failure = null
 
 let releaseInitialization
 let delayedInitializationCalls = 0
@@ -615,6 +807,39 @@ assert.deepEqual(
   Object.keys(serializeReplyDrafts(replyDrafts)),
   ['second'],
   'clearing one sent draft must retain every other conversation draft',
+)
+assert.equal(aiReplyConversationStorageKey, 'boss-helper-ai-reply-conversations')
+const storedConversation = {
+  id: 'conversation-a',
+  jobKey: 'boss::job-a',
+  peer: { uid: '200', name: 'HR' },
+  messages: [
+    {
+      id: 'message-a',
+      conversationId: 'conversation-a',
+      direction: 'incoming',
+      text: '你好',
+      timestamp: draftNow - 1000,
+      sender: { uid: '200' },
+      recipient: { uid: '100' },
+      peer: { uid: '200' },
+    },
+  ],
+  updatedAt: draftNow - 1000,
+}
+const serializedConversations = serializeReplyConversations(
+  new Map([['conversation-a', storedConversation]]),
+)
+assert.deepEqual(
+  sanitizeStoredReplyConversations(serializedConversations, draftNow),
+  serializedConversations,
+)
+assert.deepEqual(
+  sanitizeStoredReplyConversations(
+    { broken: { ...storedConversation, messages: [{ id: 'broken' }] } },
+    draftNow,
+  ),
+  {},
 )
 
 let modelData = [{ key: 'model-a', name: '模型 A' }]
@@ -702,6 +927,50 @@ const statisticsComponent = readFileSync(
   new URL('../src/components/Tabs/Statistics.vue', import.meta.url),
   'utf8',
 )
+const handlesSource = readFileSync(
+  new URL('../src/composables/useApplying/handles.ts', import.meta.url),
+  'utf8',
+)
+const deliverySource = readFileSync(
+  new URL('../src/entrypoints/boss/delivery.ts', import.meta.url),
+  'utf8',
+)
+assert.match(handlesSource, /duplicateCompanyId/)
+assert.match(handlesSource, /duplicateHrId/)
+assert.doesNotMatch(handlesSource, /someSet\.add\(data\.key\)/)
+assert.match(deliverySource, /recordSuccessfulDuplicateContact/)
+const confSource = readFileSync(
+  new URL('../src/composables/conf/index.ts', import.meta.url),
+  'utf8',
+)
+const chatBoxSource = readFileSync(
+  new URL('../src/components/ChatBox.vue', import.meta.url),
+  'utf8',
+)
+assert.match(confSource, /counter\.storageSetItems/)
+assert.doesNotMatch(chatBoxSource, /maybeAutoGenerateDraft/)
+const applyingSource = readFileSync(
+  new URL('../src/composables/useApplying/index.ts', import.meta.url),
+  'utf8',
+)
+assert.match(applyingSource, /errors\.set\(task\.id, e\)\s*throw e/)
+assert.match(applyingSource, /instanceof LimitError/)
+assert.match(applyingSource, /instanceof RateLimitError/)
+const protobufSource = readFileSync(
+  new URL('../src/composables/useWebSocket/protobuf.ts', import.meta.url),
+  'utf8',
+)
+assert.match(protobufSource, /bossPageGateway\.sendChat\(this\.packet, this\.payload\)/)
+assert.doesNotMatch(protobufSource, /ChatWebsocket|window\.socket|sendChatByGeekChatCore/)
+const requestSource = readFileSync(
+  new URL('../src/entrypoints/boss/requests.ts', import.meta.url),
+  'utf8',
+)
+assert.match(
+  requestSource,
+  /throw new PublishError\(e instanceof Error \? e\.message : String\(e\)\)/,
+)
+assert.doesNotMatch(requestSource, /return sendPublishReq\(data, e\?\.message/)
 const appearanceComponent = readFileSync(
   new URL('../src/components/Tabs/Appearance.vue', import.meta.url),
   'utf8',

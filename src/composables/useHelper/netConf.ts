@@ -1,6 +1,8 @@
 import { AlertProps } from '@nuxt/ui'
 import { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 
+import bundledNetConf from '../../../net-conf.json'
+import { isNetConf } from './netConfValidation'
 import { counter } from '@/message'
 
 export interface NetConf {
@@ -61,29 +63,18 @@ async function netNotification(
   }
 }
 
-function isNetConf(value: unknown): value is NetConf {
-  return (
-    value != null &&
-    typeof value === 'object' &&
-    typeof (value as NetConf).version === 'string' &&
-    Array.isArray((value as NetConf).notification)
-  )
-}
 
 export async function initNetConf(): Promise<NetConf | undefined> {
-  const response = await fetch('https://testingcf.jsdelivr.net/gh/Ocyss/boss-helper/net-conf.json')
-  if (!response.ok) {
-    logger.warn('远程配置获取失败', { status: response.status })
-    return undefined
-  }
-  const data: unknown = await response.json()
+  const data: unknown = bundledNetConf
   if (!isNetConf(data)) {
-    logger.warn('远程配置格式不符合预期，已忽略')
+    logger.warn('内置网络配置格式不符合预期，已忽略')
     return undefined
   }
   const now = Date.now()
   for (const item of data.notification) {
-    void netNotification(item, now)
+    void netNotification(item, now).catch((error) => {
+      logger.warn('网络通知已忽略', error)
+    })
   }
   return data
 }

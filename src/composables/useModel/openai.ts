@@ -210,15 +210,14 @@ async function fetchModels(
 ) {
   await assertBackgroundBridgeReady()
   const res = await counter
-    .rawRequest({
+    .aiRequest({
+      baseUrl: candidate.baseUrl,
       url: candidate.modelsUrl,
-      timeout: 30000,
-      data: {
-        method: 'GET',
-        headers: {
-          ...(conf.advanced?.extra_headers ?? {}),
-          Authorization: `Bearer ${conf.api_key}`,
-        },
+      timeoutMs: 30000,
+      method: 'GET',
+      headers: {
+        ...(conf.advanced?.extra_headers ?? {}),
+        Authorization: `Bearer ${conf.api_key}`,
       },
     })
     .catch((error) => {
@@ -281,9 +280,10 @@ export async function discoverOpenaiModels(
   }
 }
 
-async function backgroundFetch(
+async function isolatedModelFetch(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
+  baseUrl: string,
   timeout: number,
   advanced?: OpenaiLLMConf['advanced'],
 ) {
@@ -292,15 +292,18 @@ async function backgroundFetch(
   const canHaveBody = !['GET', 'HEAD'].includes(request.method.toUpperCase())
   const rawBody = canHaveBody ? await request.text() : undefined
   const body = advanced ? mergeAdvancedRequestBody(rawBody, advanced) : rawBody
+  const method = request.method.toUpperCase()
+  if (method !== 'GET' && method !== 'POST') {
+    throw new Error(`AI 请求方法不受支持: ${method}`)
+  }
   const res = await counter
-    .rawRequest({
+    .aiRequest({
+      baseUrl,
       url: request.url,
-      timeout,
-      data: {
-        method: request.method,
-        headers: normalizeHeaders(request.headers),
-        body,
-      },
+      timeoutMs: timeout,
+      method,
+      headers: normalizeHeaders(request.headers),
+      body,
     })
     .catch((error) => {
       throw normalizeExtensionContextError(error)
@@ -319,7 +322,14 @@ const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf: OpenaiLLMCo
     baseURL: normalizeOpenaiBaseUrl(normalizedConf.base_url),
     apiKey: normalizedConf.api_key,
     headers: normalizedConf.advanced.extra_headers,
-    fetch: (input, init) => backgroundFetch(input, init, timeout, normalizedConf.advanced),
+    fetch: (input, init) =>
+      isolatedModelFetch(
+        input,
+        init,
+        normalizedConf.base_url,
+        timeout,
+        normalizedConf.advanced,
+      ),
   })
   if (normalizedConf.responses) {
     return openai.responses(normalizedConf.model)

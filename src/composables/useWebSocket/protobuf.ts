@@ -1,7 +1,7 @@
+import { bossPageGateway } from '@/message/pageGateway'
 import { normalizeBossProtocolUserId } from '@/utils/bossIdentity'
 
 import { type BossHelperChatMessageArgs } from './chatBridge'
-import { sendChatByGeekChatCore } from './chatCore'
 import { mqtt } from './mqtt'
 import type { TechwolfChatProtocol } from './type'
 import { AwesomeMessage } from './type'
@@ -13,44 +13,6 @@ let packetMessageId = 0
 function nextPacketMessageId() {
   packetMessageId = (packetMessageId % 0xffff) + 1
   return packetMessageId
-}
-
-interface SocketLike {
-  readyState: number
-  send: (data: ArrayBuffer) => void
-}
-
-function isOpenWebSocket(socket: unknown): socket is SocketLike {
-  return (
-    typeof socket === 'object' &&
-    socket != null &&
-    'readyState' in socket &&
-    'send' in socket &&
-    socket.readyState === WebSocket.OPEN &&
-    typeof socket.send === 'function'
-  )
-}
-
-function getSocket(target: Window | null | undefined) {
-  try {
-    return target?.socket
-  } catch {
-    return undefined
-  }
-}
-
-function resolveChatSocket() {
-  const candidates = [getSocket(window), getSocket(window.top), getSocket(window.parent)]
-
-  return candidates.find(isOpenWebSocket)
-}
-
-function normalizeError(error: unknown) {
-  if (error instanceof Error) {
-    return error
-  }
-
-  return new Error(typeof error === 'string' ? error : '打招呼发送失败')
 }
 
 export class Message {
@@ -120,40 +82,20 @@ export class Message {
     ) as ArrayBuffer
   }
 
-  async send() {
+  async send(signal?: AbortSignal) {
     const toast = useToast()
-
-    let lastError: Error | null = null
-
-    try {
-      await sendChatByGeekChatCore(this.args)
-      return
-    } catch (error) {
-      lastError = normalizeError(error)
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException('Aborted', 'AbortError')
     }
-
     try {
-      if ('ChatWebsocket' in window && window.ChatWebsocket != null) {
-        window.ChatWebsocket.send({
-          toArrayBuffer: () => this.toPayloadArrayBuffer(),
-        })
-        return
-      }
-
-      const socket = resolveChatSocket()
-
-      if (socket != null) {
-        socket.send(this.toArrayBuffer())
-        return
-      }
+      await bossPageGateway.sendChat(this.packet, this.payload)
     } catch (error) {
-      lastError = normalizeError(error)
+      const normalized = error instanceof Error ? error : new Error(String(error))
+      toast.add({
+        title: normalized.message,
+        color: 'error',
+      })
+      throw normalized
     }
-    const error = lastError ?? new Error('未找到可用聊天连接')
-    toast.add({
-      title: error.message,
-      color: 'error',
-    })
-    throw error
   }
 }

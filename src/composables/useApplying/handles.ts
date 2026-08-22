@@ -6,7 +6,7 @@ import {
 } from '@/features/aiReply/types'
 import { counter } from '@/message'
 import { renderTemplate } from '@/utils/ai'
-import { HelperContext } from '~/composables/useHelper'
+import { HelperContext, JobData } from '~/composables/useHelper'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import { defineTaskHandler, JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
@@ -42,8 +42,8 @@ export class HelperConfigError {
 //   // })
 // }
 
-function aiReplyConversationId(peerUid: string, source?: number) {
-  return `boss-chat::${peerUid}::${source ?? 0}`
+function aiReplyConversationId(peerUid: string, source?: number, jobIdentity?: string) {
+  return `boss-chat::${peerUid}::${source ?? 0}${jobIdentity ? `::${jobIdentity}` : ''}`
 }
 
 function dispatchAiReplyChatEvent(payload: AiReplyChatEventPayload) {
@@ -82,7 +82,7 @@ function seedAiReplyFromGreeting<C extends HelperContext<C, T, S>, T, S>(
   }
   const message: AiReplyRealtimeMessage = {
     id: `greeting:${data.jobData.key}:${Date.now()}`,
-    conversationId: aiReplyConversationId(peerUid, source),
+    conversationId: aiReplyConversationId(peerUid, source, data.jobData.key),
     direction: 'outgoing',
     text,
     timestamp: Date.now(),
@@ -139,6 +139,30 @@ export const taskResult = {
   }),
 }
 
+const MAX_DUPLICATE_IDENTITIES = 1000
+const duplicateIdentitySets = new Map<string, Set<string>>()
+export async function recordSuccessfulDuplicateContact(uid: string, jobData: JobData) {
+  const records = [
+    { storageKey: sameCompanyKey, identity: jobData.duplicateCompanyId },
+    { storageKey: sameHrKey, identity: jobData.duplicateHrId },
+  ].filter((record): record is { storageKey: string; identity: string } => Boolean(record.identity))
+
+  try {
+    for (const { storageKey, identity } of records) {
+      const stored = await counter.storageGet<Record<string, string[]>>(storageKey, {})
+      const identities = new Set(stored[uid] ?? [])
+      duplicateIdentitySets.get(`${storageKey}:${uid}`)?.add(identity)
+      identities.add(identity)
+      await counter.storageSet(storageKey, {
+        ...stored,
+        [uid]: Array.from(identities).slice(-MAX_DUPLICATE_IDENTITIES),
+      })
+    }
+  } catch (error) {
+    logger.warn('保存重复投递身份失败', error)
+  }
+}
+
 export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
   SameCompanyFilter = defineTaskHandler<C, T, S>(
     '重复沟通-相同公司',
@@ -146,29 +170,20 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       if (!ctx.helper.conf.formData.sameCompanyFilter.value) {
         return
       }
-      const someSet: Set<string> = new Set<string>()
-      const data = await counter.storageGet<Record<string, string[]>>(sameCompanyKey, {})
-      for (const id of data[ctx.helper.uid] ?? []) {
+      const setKey = `${sameCompanyKey}:${ctx.helper.uid}`
+      const someSet = duplicateIdentitySets.get(setKey) ?? new Set<string>()
+      const stored = await counter.storageGet<Record<string, string[]>>(sameCompanyKey, {})
+      for (const id of stored[ctx.helper.uid] ?? []) {
         someSet.add(id)
       }
+      duplicateIdentitySets.set(setKey, someSet)
       return {
-        fn: async (_, { jobData: data }) => {
-          if (someSet.has(data.key)) {
+        fn: async (_, { jobData }) => {
+          const identity = jobData.duplicateCompanyId
+          if (identity && someSet.has(identity)) {
             return taskResult.skip('相同公司已投递')
           }
         },
-        after: [
-          async (ctx, { jobData: data }) => {
-            someSet.add(data.key)
-            if (someSet.size % 3 === 0) {
-              const oldData = await counter.storageGet<Record<string, string[]>>(sameCompanyKey, {})
-              await counter.storageSet(sameCompanyKey, {
-                ...oldData,
-                [ctx.helper.uid]: Array.from(someSet ?? []),
-              })
-            }
-          },
-        ],
       }
     },
     { label: '相同公司' },
@@ -180,30 +195,21 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       if (!ctx.helper.conf.formData.sameHrFilter.value) {
         return
       }
-      const someSet: Set<string> | null = new Set<string>()
-      const data = await counter.storageGet<Record<string, string[]>>(sameHrKey, {})
-      for (const id of data[ctx.helper.uid] ?? []) {
+      const setKey = `${sameHrKey}:${ctx.helper.uid}`
+      const someSet = duplicateIdentitySets.get(setKey) ?? new Set<string>()
+      const stored = await counter.storageGet<Record<string, string[]>>(sameHrKey, {})
+      for (const id of stored[ctx.helper.uid] ?? []) {
         someSet.add(id)
       }
+      duplicateIdentitySets.set(setKey, someSet)
 
       return {
-        fn: async (_, { jobData: data }) => {
-          if (data.key != null && someSet.has(data.key)) {
+        fn: async (_, { jobData }) => {
+          const identity = jobData.duplicateHrId
+          if (identity && someSet.has(identity)) {
             return taskResult.skip('相同hr已投递')
           }
         },
-        after: [
-          async (ctx, { jobData: data }) => {
-            someSet.add(data.key)
-            if (someSet.size % 3 === 0) {
-              const oldData = await counter.storageGet<Record<string, string[]>>(sameHrKey, {})
-              await counter.storageSet(sameHrKey, {
-                ...oldData,
-                [ctx.helper.uid]: Array.from(someSet ?? []),
-              })
-            }
-          },
-        ],
       }
     },
     { label: '相同HR' },
@@ -388,7 +394,10 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
     if (!ctx.helper.conf.formData.friendStatus.value) {
       return
     }
-    return async (_, { jobData }) => {
+    return async (taskContext, { jobData }) => {
+      if (taskContext.helper.workflow?.submissionConfirmed(jobData.key)) {
+        return
+      }
       if (jobData.boss?.isFriend === true) {
         return {
           isSkip: true,
@@ -475,6 +484,9 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       if (!ctx.helper.conf.formData.autoGreetingEnabled.value) {
         return
       }
+      if (ctx.helper.conf.formData.aiGreeting.enable) {
+        return
+      }
       if (!ctx.helper.conf.formData.customGreeting.enable) {
         return
       }
@@ -499,9 +511,9 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         // })
 
         // await buf.send()
-
-        ;(data.state as any).message = msg
-        await ctx.helper.sendMessage(data.jobData.key, msg)
+        ctx.ensureActive?.()
+        await ctx.helper.sendMessage(data.jobData.key, msg, ctx.signal)
+        ctx.ensureActive?.()
         return {
           status: 'success',
           msg: '自定义招呼已发送',
@@ -528,6 +540,7 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       }
       return async (ctx, data) => {
         const result = await ctx.helper.chatModel.chat('greetings', data)
+        ctx.ensureActive?.()
         const msg = result.text.trim()
         ;(data.state as any).aiGreetingQ = result.prompt
         ;(data.state as any).aiGreetingR = result.reasoning_content
@@ -535,7 +548,8 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
         if (!msg) {
           return taskResult.skip('AI招呼语为空')
         }
-        await ctx.helper.sendMessage(data.jobData.key, msg)
+        await ctx.helper.sendMessage(data.jobData.key, msg, ctx.signal)
+        ctx.ensureActive?.()
         seedAiReplyFromGreeting(ctx, data, msg)
         return {
           status: 'success',
@@ -604,14 +618,16 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
     return async (ctx, { jobData, state }) => {
       state.amap ??= {}
 
-      if (!jobData.address) {
+      if (!jobData.address && !jobData.addressCoords) {
         return taskResult.skip('地址信息为空')
       }
-      state.amap.geocode = await amapGeocode(jobData.address) // TODO: 直接使用经纬度
-      if (!state.amap.geocode?.location) {
+      const geocode = jobData.addressCoords ? undefined : await amapGeocode(jobData.address ?? '')
+      const destination = jobData.addressCoords?.join(',') ?? geocode?.location
+      if (!destination) {
         return taskResult.skip('未获取到地址经纬度')
       }
-      state.amap.distance = await amapDistance(state.amap.geocode.location)
+      state.amap.geocode = geocode
+      state.amap.distance = await amapDistance(destination)
 
       if (state.amap == null || state.amap.distance == null) {
         return {

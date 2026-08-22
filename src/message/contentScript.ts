@@ -5,7 +5,6 @@ import type { StorageItemKey } from '#imports'
 import { storage } from '#imports'
 
 import type { BackgroundCounter } from './background'
-export { createContentBridgeOptions, ProvideContentAdapter } from './contentScriptShare'
 
 export const [, injectBackgroundCounter] = defineProxy(() => ({}) as BackgroundCounter, {
   namespace: '__boss-helper-background__',
@@ -16,34 +15,11 @@ function genKey(key: string): StorageItemKey {
   return prefixes.some((prefix) => key.startsWith(prefix)) ? (key as StorageItemKey) : `sync:${key}`
 }
 
-export class ContentCounter implements BackgroundCounter {
+export class ContentCounter {
   public background: BackgroundCounter
-  public routerHooks: Array<(path: string) => void> = []
 
   constructor(background: BackgroundCounter) {
     this.background = background
-  }
-
-  _addRouterHook(hook: (path: string) => void) {
-    this.routerHooks.push(hook)
-  }
-
-  async callRouterHooks(path: string) {
-    for (const hook of this.routerHooks) {
-      try {
-        hook(path)
-      } catch (e) {
-        console.error('调用路由hook失败', e)
-      }
-    }
-  }
-
-  async request(...args: Parameters<BackgroundCounter['request']>) {
-    return this.background.request(...args)
-  }
-
-  async rawRequest(...args: Parameters<BackgroundCounter['rawRequest']>) {
-    return this.background.rawRequest(...args)
   }
 
   async notify(...args: Parameters<BackgroundCounter['notify']>) {
@@ -52,10 +28,6 @@ export class ContentCounter implements BackgroundCounter {
 
   async backgroundTest(...args: Parameters<BackgroundCounter['backgroundTest']>) {
     return this.background.backgroundTest(...args)
-  }
-
-  async fetch(...args: Parameters<typeof fetch>) {
-    return this.background.fetch(...args)
   }
 
   async getWorkflowOwnerId(runtimeId: string) {
@@ -93,13 +65,16 @@ export class ContentCounter implements BackgroundCounter {
   async resetWorkflowRunFilters(...args: Parameters<BackgroundCounter['resetWorkflowRunFilters']>) {
     return this.background.resetWorkflowRunFilters(...args)
   }
-
-  async sessionStorageGet<T>(key: string, defaultValue: T) {
-    return this.background.sessionStorageGet(key, defaultValue)
+  async aiRequest(...args: Parameters<BackgroundCounter['aiRequest']>) {
+    return this.background.aiRequest(...args)
   }
 
-  async sessionStorageSet<T>(key: string, value: T) {
-    return this.background.sessionStorageSet(key, value)
+  async readAiReplySession(...args: Parameters<BackgroundCounter['readAiReplySession']>) {
+    return this.background.readAiReplySession(...args)
+  }
+
+  async writeAiReplySession(...args: Parameters<BackgroundCounter['writeAiReplySession']>) {
+    return this.background.writeAiReplySession(...args)
   }
 
   async storageGet<T>(key: string, defaultValue: T): Promise<T>
@@ -110,6 +85,15 @@ export class ContentCounter implements BackgroundCounter {
 
   async storageSet<T>(key: string, value: T) {
     await storage.setItem(genKey(key), value)
+    return true
+  }
+  async storageSetItems(items: Array<{ key: string; value: unknown }>) {
+    await storage.setItems(
+      items.map(({ key, value }) => ({
+        key: genKey(key),
+        value,
+      })),
+    )
     return true
   }
 
@@ -146,10 +130,3 @@ export class InjectBackgroundAdapter implements Adapter<MessageMeta> {
     return () => browser.runtime.onMessage.removeListener(handler)
   }
 }
-
-export const [provideContentCounter] = defineProxy(
-  () => new ContentCounter(injectBackgroundCounter(new InjectBackgroundAdapter())),
-  {
-    namespace: '__boss-helper-content__',
-  },
-)

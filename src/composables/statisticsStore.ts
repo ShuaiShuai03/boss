@@ -7,6 +7,7 @@ export type StatisticsSnapshot = Statistics
 export interface StatisticsStorage {
   storageGet<T>(key: string, defaultValue: T): Promise<T>
   storageSet<T>(key: string, value: T): Promise<unknown>
+  storageSetItems(items: Array<{ key: string; value: unknown }>): Promise<unknown>
 }
 
 export type InitializationStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -155,9 +156,9 @@ export function createStatisticsStore(storage: StatisticsStorage, date: string) 
           const history = [clone(storedToday), ...clone(storedHistory)]
           replaceToday(todayData, emptyToday)
           statisticsData.value = history
-          await Promise.all([
-            storage.storageSet(todayKey, clone(todayData)),
-            storage.storageSet(statisticsKey, clone(history)),
+          await storage.storageSetItems([
+            { key: todayKey, value: clone(todayData) },
+            { key: statisticsKey, value: clone(history) },
           ])
         }
         initializationStatus.value = 'ready'
@@ -184,19 +185,25 @@ export function createStatisticsStore(storage: StatisticsStorage, date: string) 
     await flush()
     return JSON.stringify(clone({ t: todayData, s: statisticsData.value }))
   }
-
   async function setStatistics(data: string) {
     const parsed = JSON.parse(data) as unknown
     if (!isRecord(parsed)) throw new Error('统计导入数据不是有效对象')
     const nextToday = normalizeStatisticsSnapshot(parsed.t, '导入的今日统计')
     const nextHistory = normalizeStatisticsHistory(parsed.s)
-
-    replaceToday(todayData, nextToday)
-    statisticsData.value = clone(nextHistory)
-    await Promise.all([
-      storage.storageSet(todayKey, clone(todayData)),
-      storage.storageSet(statisticsKey, clone(statisticsData.value)),
-    ])
+    const nextTodaySnapshot = clone(nextToday)
+    const nextHistorySnapshot = clone(nextHistory)
+    try {
+      await storage.storageSetItems([
+        { key: todayKey, value: nextTodaySnapshot },
+        { key: statisticsKey, value: nextHistorySnapshot },
+      ])
+    } catch (error) {
+      persistenceError.value = error instanceof Error ? error.message : String(error)
+      throw error
+    }
+    replaceToday(todayData, nextTodaySnapshot)
+    statisticsData.value = nextHistorySnapshot
+    persistenceError.value = null
   }
 
   function dispose() {

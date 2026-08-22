@@ -7,10 +7,11 @@ import {
   PublishError,
   RateLimitError,
 } from '@/composables/useApplying/deliverError'
+import { parseBossPageDetail, type BossPageDetail } from '@/message/pageProtocol'
 import { normalizeBossOpaqueUserId, normalizeBossProtocolUserId } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
-import type { BossZpBossData, BossZpDetailData } from './types'
+import type { BossZpBossData } from './types'
 
 // const { userInfo } = useStore()
 const toast = useToast()
@@ -52,8 +53,29 @@ function normalizeRequestBossDataOptions(
 }
 
 function requestSignal(signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
-  return signal ? AbortSignal.any([signal, timeout]) : timeout
+  const timeout =
+    typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
+      : (() => {
+          const controller = new AbortController()
+          window.setTimeout(
+            () => controller.abort(new DOMException('请求超时', 'TimeoutError')),
+            BOSS_REQUEST_TIMEOUT_MS,
+          )
+          return controller.signal
+        })()
+  if (!signal) return timeout
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout])
+
+  const controller = new AbortController()
+  const onAbort = () => controller.abort(signal.reason)
+  if (signal.aborted) {
+    onAbort()
+  } else {
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+  timeout.addEventListener('abort', () => controller.abort(timeout.reason), { once: true })
+  return controller.signal
 }
 
 function sleep(ms: number, signal?: AbortSignal) {
@@ -74,11 +96,8 @@ function sleep(ms: number, signal?: AbortSignal) {
 }
 
 function getBossToken() {
-  try {
-    return window.Cookie?.get?.('bst') ?? ''
-  } catch {
-    return ''
-  }
+  const match = document.cookie.match(/(?:^|;\s*)bst=([^;]*)/)
+  return match?.[1] ? decodeURIComponent(match[1]) : ''
 }
 
 export async function requestDetail(
@@ -87,7 +106,7 @@ export async function requestDetail(
 ): Promise<{
   code: number
   message: string
-  zpData: BossZpDetailData
+  zpData: BossPageDetail
 }> {
   const token = getBossToken()
   if (!token) {
@@ -102,21 +121,30 @@ export async function requestDetail(
   url.searchParams.set('lid', params.lid)
   url.searchParams.set('_', String(Date.now()))
 
-  return fetch(url.toString(), {
+  const raw: unknown = await fetch(url.toString(), {
     headers: { Zp_token: token },
     signal: requestSignal(signal),
-  }).then((r) => r.json())
+  }).then((response) => response.json())
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new PublishError('岗位详情响应不是有效对象')
+  }
+  const code = 'code' in raw ? Number(raw.code) : -1
+  const message = 'message' in raw && typeof raw.message === 'string' ? raw.message : ''
+  const detail = 'zpData' in raw ? parseBossPageDetail(raw.zpData) : undefined
+  if (code !== 0 || !detail) {
+    throw new PublishError(message || `岗位详情响应无效: code=${code}`)
+  }
+  return { code, message, zpData: detail }
 }
 
 export async function sendPublishReq(
   data: { securityId: string; encryptJobId: string },
-  errorMsg?: string,
   retries = 3,
   _params = {},
   signal?: AbortSignal,
 ): Promise<PublishResponse> {
   if (retries <= 0) {
-    throw new PublishError(errorMsg ?? '重试多次失败')
+    throw new PublishError('重试多次失败')
   }
   const url = new URL('https://www.zhipin.com/wapi/zpgeek/friend/add.json')
   Object.entries({
@@ -163,7 +191,7 @@ export async function sendPublishReq(
           if (nextRetries <= 0) {
             throw new PublishError(`投递限制确认后仍未成功: ${content}`)
           }
-          return sendPublishReq(data, undefined, nextRetries, { cid: 1 }, signal)
+          return sendPublishReq(data, nextRetries, { cid: 1 }, signal)
         } catch (e) {
           if (e instanceof BossHelperError) {
             throw e
@@ -182,12 +210,12 @@ export async function sendPublishReq(
       throw new PublishError(`未知错误状态:${res.message}`)
     }
     return res
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof BossHelperError) {
       throw e
     }
     if (signal?.aborted) throw e
-    return sendPublishReq(data, e?.message as string, retries - 1, _params, signal)
+    throw new PublishError(e instanceof Error ? e.message : String(e))
   }
 }
 
