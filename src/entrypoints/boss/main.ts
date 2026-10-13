@@ -1,11 +1,13 @@
-import { UserContent } from 'ai'
+import type { UserContent } from 'ai'
 import { ref } from 'vue'
 
 import { appearanceConf } from '@/composables/conf'
 import { checkJobCache } from '@/composables/useApplying'
 import { GreetError } from '@/composables/useApplying/deliverError'
-import { createLazyObject, WorkflowData } from '@/composables/useApplying/type'
-import { HelperContext, JobData } from '@/composables/useHelper'
+import type { WorkflowData } from '@/composables/useApplying/type'
+import { createLazyObject } from '@/composables/useApplying/type'
+import type { JobData } from '@/composables/useHelper'
+import { HelperContext } from '@/composables/useHelper'
 import { Message } from '@/composables/useWebSocket/protobuf'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { createBossHelperJobElement, disposeBossHelperJobElement, run } from '@/index'
@@ -14,7 +16,8 @@ import type { BossPageJobItem } from '@/message/pageProtocol'
 import { resolveBossUser, waitForBossUser } from '@/utils/bossIdentity'
 import { logger } from '@/utils/logger'
 
-import { BoosJobData, bossWorkflow } from './delivery'
+import type { BoosJobData } from './delivery'
+import { bossWorkflow } from './delivery'
 import { requestBossData } from './requests'
 let activeBossHelper: BossHelperCtx | undefined
 

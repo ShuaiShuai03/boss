@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import { InputMenuItem } from '@nuxt/ui'
+import type { InputMenuItem } from '@nuxt/ui'
 import { computed, reactive } from 'vue'
 
 import LLMFormItem from '@/components/AI/LLMFormItem.vue'
-import { ModelConfData } from '@/composables/useModel'
+import type { ModelConfData } from '@/composables/useModel'
 import { openai } from '@/composables/useModel/openai'
 import type { LLMInfo } from '@/composables/useModel/type'
 

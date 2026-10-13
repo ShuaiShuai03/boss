@@ -1,13 +1,14 @@
 <script lang="ts" setup>
 import { isPartStreaming, isToolStreaming } from '@nuxt/ui/utils/ai'
 import { useMediaQuery, watchThrottled } from '@vueuse/core'
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, UIMessage } from 'ai'
+import type { UIMessage } from 'ai'
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart } from 'ai'
 
 import { appearanceConf } from '@/composables/conf'
 import type { WorkflowData } from '@/composables/useApplying/type'
 import { parseFiltering } from '@/composables/useApplying/utils'
 import { useHelper } from '@/composables/useHelper'
-import { Message } from '@/composables/useModel/test'
+import type { Message } from '@/composables/useModel/test'
 import {
   PendingMessageQueue,
   pickConversationForMessage,

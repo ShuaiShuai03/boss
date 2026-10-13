@@ -1,5 +1,5 @@
-import { AlertProps } from '@nuxt/ui'
-import { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
+import type { AlertProps } from '@nuxt/ui'
+import type { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 
 import bundledNetConf from '../../../net-conf.json'
 import { isNetConf } from './netConfValidation'

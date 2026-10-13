@@ -1,21 +1,23 @@
-import { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
+import type { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 import { extendRef } from '@vueuse/core'
-import { UserContent } from 'ai'
-import { computed, Reactive, ref, Ref, watch } from 'vue'
+import type { UserContent } from 'ai'
+import type { Reactive, Ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { useConf } from '@/composables/conf'
 import { createInitializationGate } from '@/composables/initializationGate'
-import { DeliveryWorkflow } from '@/composables/useApplying'
+import type { DeliveryWorkflow } from '@/composables/useApplying'
 import type { BossHelperError } from '@/composables/useApplying/deliverError'
-import { TaskResult, WorkflowData } from '@/composables/useApplying/type'
+import type { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel/test'
 import { createExtensionStatisticsStore } from '@/composables/useStatistics'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { logger } from '@/utils/logger'
 
-import { initNetConf, NetConf } from './netConf'
-import { Log, JobData, LogData } from './type'
+import type { NetConf } from './netConf'
+import { initNetConf } from './netConf'
+import type { Log, JobData, LogData } from './type'
 const MAX_LOG_ENTRIES = 500
 
 export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
