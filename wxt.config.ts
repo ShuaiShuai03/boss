@@ -115,14 +115,14 @@ export default defineConfig({
     version: buildVersion,
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
-    permissions: ['storage', 'notifications', 'alarms', 'scripting'],
+    permissions: ['storage', 'notifications', 'alarms', 'scripting', 'tabs'],
     web_accessible_resources: [
       {
         resources: ['chat-socket-main-world.js'],
         matches,
       },
     ],
-    host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
+    host_permissions: ['*://zhipin.com/*', '*://*.zhipin.com/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxCHedeutoVPRmAkHsKoev5NdPRNcre8U1Z7a1MbceU7BQRIkMhiIApkBpvoTW30dcUQ/V3UOB6v4Crvkr40Hjr8u1uygcWynl12/+gIcNriIKgZh+udWCkKCFHs5pFEdoXUaQqym+eEBkJCo5HwgxYkxXA94/a2Vtnd5u7Mk0nWyk40qx1wxATYEi10C5L82U32F6KgvIY7YqhtFaM9N2utW4rlbtMgeEOEANG6fo4IBhEM/+n5kbch5K2KAH70fMKUq9aOj43b3gTM4mT90tF1jfMRgLW26d6zfUhMQBG2SqQSc6AoN25r+Q5D79OcezUE1S8iBkzb1MM2GfkFxJQIDAQAB',
     browser_specific_settings: {
       gecko: {
