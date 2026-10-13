@@ -1,4 +1,4 @@
-import { BossZpBossData } from '@/entrypoints/boss/types'
+import type { BossZpBossData } from '@/entrypoints/boss/types'
 import type { amapDistance, amapGeocode } from '@/utils/amap'
 
 export type JobBaseData = {

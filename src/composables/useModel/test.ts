@@ -1,25 +1,27 @@
-import { ChatMessageProps } from '@nuxt/ui'
-import {
+import type { ChatMessageProps } from '@nuxt/ui'
+import type {
   ChatState,
   ChatStatus,
   FinishReason,
   FlexibleSchema,
   ModelMessage,
+  UIMessage,
+} from 'ai'
+import {
   NoObjectGeneratedError,
   NoOutputGeneratedError,
   ToolLoopAgent,
-  UIMessage,
   createIdGenerator,
 } from 'ai'
-import { ShallowReactive } from 'vue'
+import type { ShallowReactive } from 'vue'
 
-import { FormDataAi } from '@/types/formData'
+import type { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 import { normalizeExtensionContextError } from '@/utils/extension'
 import { sanitizeErrorMessage } from '@/utils/sensitive'
 
-import { ModelConf } from '.'
-import { WorkflowData } from '../useApplying/type'
+import type { ModelConf } from '.'
+import type { WorkflowData } from '../useApplying/type'
 import { HelperContext } from '../useHelper'
 import { createAgentOutput } from './agent-output'
 import { getEffectiveAiTimeoutMs } from './common'

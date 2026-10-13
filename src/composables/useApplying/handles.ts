@@ -6,10 +6,12 @@ import {
 } from '@/features/aiReply/types'
 import { counter } from '@/message'
 import { renderTemplate } from '@/utils/ai'
-import { HelperContext, JobData } from '~/composables/useHelper'
+import type { JobData } from '@/composables/useHelper'
+import { HelperContext } from '@/composables/useHelper'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
-import { defineTaskHandler, JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
+import type { JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
+import { defineTaskHandler } from './type'
 import {
   evaluateKeywordFilter,
   filteringOutputSchema,

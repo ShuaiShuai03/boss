@@ -23,15 +23,15 @@ import {
 } from './runState'
 import { createWorkflowStopReason, type WorkflowStopReason } from './stopReason'
 import {
-  Handler,
-  JobStatus,
+  type Handler,
+  type JobStatus,
   jobStatusList,
-  Task,
-  TaskContext,
-  TaskPipeline,
-  TaskResult,
-  TaskStatus,
-  WorkflowData,
+  type Task,
+  type TaskContext,
+  type TaskPipeline,
+  type TaskResult,
+  type TaskStatus,
+  type WorkflowData,
 } from './type'
 
 export type { WorkflowStopReason, WorkflowStopReasonCode } from './stopReason'

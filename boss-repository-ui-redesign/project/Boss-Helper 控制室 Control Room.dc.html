@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--bg:#0D1920;--bg2:#081217;--surf:#12212B;--surf2:#172C38;--surf3:#1E3949;
+--line:#26414F;--line2:#365667;--fg:#E8F0F3;--fg2:#9FB6C1;--fg3:#66808D;
+--acc:#F5A524;--acc2:#FFC15E;--accInk:#12212B;--accSoft:rgba(245,165,36,.14);
+--ok:#4FD98B;--okSoft:rgba(79,217,139,.14);--err:#FF6B5A;--errSoft:rgba(255,107,90,.14);
+--info:#5FB8FF;--infoSoft:rgba(95,184,255,.14);--ai:#B98BFF;--aiSoft:rgba(185,139,255,.14);
+--ui:'Space Grotesk','Noto Sans SC',ui-sans-serif,sans-serif;
+--zh:'Noto Sans SC','Space Grotesk',ui-sans-serif,sans-serif;
+--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+[data-theme="light"]{
+--bg:#E4E9E8;--bg2:#D5DCDB;--surf:#FFFFFF;--surf2:#F3F6F6;--surf3:#E7ECEC;
+--line:#D3DBDB;--line2:#B4C1C2;--fg:#12212B;--fg2:#4E626C;--fg3:#7E9099;
+--acc:#B86E06;--acc2:#94570A;--accInk:#FFFFFF;--accSoft:rgba(184,110,6,.12);
+--ok:#17794C;--okSoft:rgba(23,121,76,.12);--err:#BC3325;--errSoft:rgba(188,51,37,.12);
+--info:#15669F;--infoSoft:rgba(21,102,159,.12);--ai:#6C3FC4;--aiSoft:rgba(108,63,196,.12);
+}
+body{margin:0;background:var(--bg2);font-family:var(--zh);color:var(--fg);-webkit-font-smoothing:antialiased}
+a{color:var(--acc);text-decoration:none}
+a:hover{color:var(--acc2);text-decoration:underline}
+@keyframes cr-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+@keyframes cr-hazard{to{background-position:56px 0}}
+@keyframes cr-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+@keyframes cr-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cr-slide{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes cr-bar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes cr-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes cr-spin{to{transform:rotate(360deg)}}
+@keyframes cr-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.cr-sc::-webkit-scrollbar{width:9px;height:9px}
+.cr-sc::-webkit-scrollbar-track{background:transparent}
+.cr-sc::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px}
+.cr-sc::-webkit-scrollbar-thumb:hover{background:var(--acc)}
+.cr-nav,.cr-seg{white-space:nowrap;cursor:pointer;background:transparent;transition:all .18s ease}
+.cr-nav{color:var(--fg2);border:1px solid transparent}
+.cr-nav.pill{border-color:var(--line)}
+.cr-nav[data-active="true"]{background:var(--acc);color:var(--accInk);border-color:var(--acc)}
+.cr-nav[data-active="false"]:hover{background:var(--surf3);color:var(--fg);border-color:var(--line2)}
+.cr-nav span{background:var(--surf3);color:var(--fg3)}
+.cr-nav span[data-tone="warn"]{background:var(--accSoft);color:var(--acc)}
+.cr-nav span[data-tone="ai"]{background:var(--aiSoft);color:var(--ai)}
+.cr-nav[data-active="true"] span{background:rgba(0,0,0,.28);color:var(--accInk)}
+body:has([data-theme="light"]){background:#D5DCDB}
+.cr-seg{color:var(--fg3);border:1px solid var(--line)}
+.cr-seg[data-active="true"]{background:var(--accSoft);color:var(--acc);border-color:var(--acc)}
+.cr-seg[data-active="false"]:hover{border-color:var(--line2);color:var(--fg)}
+.cr-row{background:transparent;transition:background .16s ease}
+.cr-row[data-open="true"],.cr-row:hover{background:var(--surf2)}
+.cr-job{border:1px solid var(--line);background:var(--surf2);transition:transform .22s cubic-bezier(.2,.8,.3,1),border-color .22s ease}
+.cr-job:hover{border-color:var(--acc);transform:translateY(-3px)}
+.cr-job:hover .cr-jt{color:var(--acc)}
+.cr-tog{background:var(--surf3);border:1px solid var(--line2);cursor:pointer;padding:0;position:relative;transition:all .2s ease}
+.cr-tog > i{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--fg3);display:block;transition:transform .2s cubic-bezier(.2,.8,.3,1),background .2s ease}
+.cr-tog[data-on="true"]{background:var(--acc);border-color:var(--acc)}
+.cr-tog[data-on="true"] > i{transform:translateX(18px);background:var(--accInk)}
+.cr-b:focus-visible,.cr-nav:focus-visible,.cr-tog:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.cr-ph{color:var(--fg3)}
+input.cr-i::placeholder,textarea.cr-i::placeholder{color:var(--fg3)}
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" style="min-height:100vh;background:var(--bg2);font-family:var(--zh);color:var(--fg)">
+
+<div style="display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--surf);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:60">
+<img src="public/icons/logo.png" alt="Boss-Helper" width="20" height="20" style="width:20px;height:20px;object-fit:contain;display:block">
+<span style="font:700 12px/1 var(--ui);letter-spacing:.16em;text-transform:uppercase;color:var(--fg)">Boss·Helper</span>
+<span style="font:500 10px/1 var(--mono);color:var(--fg3);letter-spacing:.08em">控制室 CONTROL ROOM</span>
+<div style="display:flex;gap:6px;margin-left:18px">
+<sc-for list="{{ views }}" as="v" hint-placeholder-count="3">
+<button class="cr-nav pill" data-active="{{ v.active }}" onClick="{{ v.go }}" style="font:500 12px/1 var(--zh);padding:8px 13px;border-radius:999px">{{ v.label }}</button>
+</sc-for>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<button class="cr-b" onClick="{{ toggleTheme }}" style="font:500 11px/1 var(--mono);letter-spacing:.06em;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--acc);color:var(--acc)">{{ themeLabel }}</button>
+</div>
+</div>
+
+<sc-if value="{{ isPanel }}" hint-placeholder-val="{{ true }}">
+<div style="padding:0 0 60px;background:var(--bg2)">
+
+<div style="height:52px;background:var(--surf2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:26px;padding:0 34px;font-size:13px;color:var(--fg3);opacity:.55">
+<span style="font:700 16px/1 var(--ui);color:var(--fg3)">BOSS</span>
+<span>推荐职位</span><span>职位搜索</span><span>公司</span><span>校园</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:14px"><span>消息</span><span style="width:26px;height:26px;border-radius:50%;background:var(--line)"></span></span>
+</div>
+
+<div style="max-width:1240px;margin:0 auto;padding:26px 20px 0;position:relative">
+
+<div style="border:1px solid var(--line);border-radius:14px;background:var(--surf);box-shadow:0 24px 60px -24px rgba(0,0,0,.55);overflow:hidden;animation:cr-rise .5s cubic-bezier(.2,.8,.3,1) both">
+
+<div style="display:flex;align-items:stretch;gap:0;border-bottom:1px solid var(--line);background:var(--surf2)">
+
+<div style="flex:0 0 auto;padding:20px 24px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:216px">
+<div style="display:flex;align-items:center;gap:9px">
+<span style="width:9px;height:9px;border-radius:50%;background:{{ liveColor }};animation:cr-pulse 1.4s ease-in-out infinite"></span>
+<span style="font:700 11px/1 var(--mono);letter-spacing:.14em;color:{{ liveColor }}">{{ liveLabel }}</span>
+</div>
+<button class="cr-b" onClick="{{ toggleRun }}" style="display:flex;align-items:center;justify-content:center;gap:9px;height:52px;padding:0 22px;border-radius:10px;border:0;background:{{ runBg }};color:var(--accInk);cursor:pointer;font:700 16px/1 var(--zh);letter-spacing:.02em;transition:transform .14s ease,filter .18s ease" style-hover="filter:brightness(1.08)" style-active="transform:scale(.97)">
+<span style="width:0;height:0;border-left:11px solid currentColor;border-top:7px solid transparent;border-bottom:7px solid transparent;display:{{ playIcon }}"></span>
+<span style="width:12px;height:13px;border-left:4px solid currentColor;border-right:4px solid currentColor;display:{{ pauseIcon }}"></span>
+{{ runLabel }}
+</button>
+<button class="cr-b" onClick="{{ reset }}" style="font:500 12px/1 var(--zh);padding:8px 0;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--err);color:var(--err)">重置筛选队列</button>
+</div>
+
+<div style="flex:1;padding:18px 24px;display:flex;flex-direction:column;gap:14px;min-width:0">
+<div style="display:flex;align-items:flex-end;gap:12px">
+<span style="flex:0 0 auto;white-space:nowrap;font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">本批投递 · Batch</span>
+<span style="flex:0 0 auto;white-space:nowrap;font:700 26px/1 var(--mono);color:var(--acc);letter-spacing:-.02em">{{ submitted }}</span>
+<span style="flex:0 0 auto;white-space:nowrap;font:400 14px/1.4 var(--mono);color:var(--fg3)">/ {{ limit }}</span>
+<span style="margin-left:auto;flex:0 0 auto;white-space:nowrap;font:500 11px/1 var(--mono);color:var(--fg2)">{{ pct }}%</span>
+</div>
+<div style="display:flex;gap:3px;height:14px" title="本批成功投递进度">
+<sc-for list="{{ ticks }}" as="t" hint-placeholder-count="30">
+<span style="flex:1;border-radius:2px;background:{{ t.c }};transition:background .3s ease"></span>
+</sc-for>
+</div>
+<div style="display:flex;gap:16px 26px;flex-wrap:wrap">
+<div style="display:flex;flex-direction:column;gap:3px;white-space:nowrap"><span style="font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--fg3)">当前页面</span><span style="font:600 15px/1 var(--mono);color:var(--fg)">8<span style="color:var(--fg3)">/30</span></span></div>
+<div style="display:flex;flex-direction:column;gap:3px;white-space:nowrap"><span style="font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--fg3)">连续失败熔断</span><span style="font:600 15px/1 var(--mono);color:var(--ok)">0<span style="color:var(--fg3)">/3</span></span></div>
+<div style="display:flex;flex-direction:column;gap:3px;white-space:nowrap"><span style="font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--fg3)">动作间隔</span><span style="font:600 15px/1 var(--mono);color:var(--fg)">5000<span style="color:var(--fg3)">ms</span></span></div>
+<div style="display:flex;flex-direction:column;gap:3px;white-space:nowrap"><span style="font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--fg3)">今日成功</span><span style="font:600 15px/1 var(--mono);color:var(--fg)">53<span style="color:var(--fg3)">/248</span></span></div>
+</div>
+</div>
+
+<div style="flex:0 0 300px;border-left:1px solid var(--line);padding:18px 20px;display:flex;flex-direction:column;gap:9px;overflow:hidden">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">实时流水 · Stream</span>
+<div class="cr-sc" style="display:flex;flex-direction:column;gap:6px;max-height:96px;overflow-y:auto">
+<sc-for list="{{ stream }}" as="s" hint-placeholder-count="4">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.5 var(--mono);animation:cr-slide .4s ease both">
+<span style="color:var(--fg3);flex:0 0 auto">{{ s.t }}</span>
+<span style="color:{{ s.c }};flex:0 0 auto;font-weight:700">{{ s.tag }}</span>
+<span style="color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.msg }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--surf)">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<button class="cr-nav" data-active="{{ t.active }}" onClick="{{ t.go }}" style="font:500 13px/1 var(--zh);padding:9px 16px;border-radius:8px;display:flex;align-items:center;gap:7px">{{ t.label }}<span data-tone="{{ t.tone }}" style="font:600 9px/1 var(--mono);padding:3px 5px;border-radius:4px;display:{{ t.badgeShow }}">{{ t.badge }}</span></button>
+</sc-for>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<button class="cr-b" onClick="{{ openChat }}" style="display:flex;align-items:center;gap:7px;font:500 13px/1 var(--zh);padding:9px 15px;border-radius:8px;border:1px solid var(--acc);background:var(--accSoft);color:var(--acc);cursor:pointer;transition:all .18s ease" style-hover="background:var(--acc);color:var(--accInk)">对话<span style="font:600 10px/1 var(--mono);padding:2px 5px;border-radius:999px;background:var(--acc);color:var(--accInk)">3</span></button>
+<button class="cr-b" onClick="{{ toggleHelp }}" title="帮助模式" style="font:500 13px/1 var(--zh);padding:9px 13px;border-radius:8px;border:1px solid {{ helpBorder }};background:transparent;color:{{ helpColor }};cursor:pointer;transition:all .18s ease">帮助</button>
+<button class="cr-b" onClick="{{ openOnboard }}" style="font:500 13px/1 var(--zh);padding:9px 13px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--line2);color:var(--fg)">使用指南</button>
+</div>
+</div>
+
+<sc-if value="{{ helpOn }}" hint-placeholder-val="{{ false }}">
+<div role="status" style="display:flex;align-items:center;gap:10px;padding:11px 20px;background:var(--accSoft);border-bottom:1px solid var(--acc);font:400 13px/1.5 var(--zh);color:var(--acc)">
+<span style="width:6px;height:6px;border-radius:50%;background:var(--acc);animation:cr-pulse 1.2s ease-in-out infinite"></span>
+帮助模式已开启 — 悬停或用 Tab 聚焦任意控件查看说明，按 Esc 关闭当前说明。
+</div>
+</sc-if>
+
+<div style="padding:26px 20px 28px;min-height:420px">
+
+<sc-if value="{{ isConsole }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:24px;animation:cr-rise .34s ease both">
+
+<sc-if value="{{ stopped }}" hint-placeholder-val="{{ false }}">
+<div role="status" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border-radius:11px;border:1px solid var(--acc);background:var(--accSoft);position:relative;overflow:hidden">
+<span style="position:absolute;left:0;top:0;bottom:0;width:5px;background:repeating-linear-gradient(45deg,var(--acc) 0 8px,transparent 8px 16px);background-size:22.6px 22.6px;animation:cr-hazard 1.6s linear infinite"></span>
+<div style="padding-left:12px">
+<p style="margin:0;font:600 15px/1.4 var(--zh);color:var(--fg)">已达到本批上限</p>
+<p style="margin:4px 0 0;font:400 13px/1.5 var(--zh);color:var(--fg2)">本批成功投递 120 个岗位，已暂停。检查一下回复情况再开始下一批。</p>
+</div>
+<button class="cr-b" onClick="{{ toggleRun }}" style="font:600 13px/1 var(--zh);padding:11px 18px;border-radius:8px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">开始下一批</button>
+</div>
+</sc-if>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:14px">
+<sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+<div title="{{ s.help }}" style="padding:16px 17px;border-radius:11px;border:1px solid var(--line);background:var(--surf2);display:flex;flex-direction:column;gap:9px;transition:border-color .2s ease" style-hover="border-color:var(--line2)">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--fg3);text-transform:uppercase">{{ s.en }}</span>
+<span style="font:400 12px/1 var(--zh);color:var(--fg2)">{{ s.label }}</span>
+<span style="font:700 30px/1 var(--mono);color:var(--fg);letter-spacing:-.03em">{{ s.value }}<span style="font-size:13px;font-weight:400;color:var(--fg3);margin-left:3px">{{ s.unit }}</span></span>
+<div style="height:3px;border-radius:2px;background:var(--line);overflow:hidden"><div style="height:100%;width:{{ s.w }};background:{{ s.c }};transform-origin:left;animation:cr-bar .8s cubic-bezier(.2,.8,.3,1) both"></div></div>
+</div>
+</sc-for>
+
+<div style="padding:16px 17px;border-radius:11px;border:1px solid var(--line);background:var(--surf2);display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px">
+<sc-for list="{{ periods }}" as="p" hint-placeholder-count="4">
+<button class="cr-seg" data-active="{{ p.active }}" onClick="{{ p.go }}" style="flex:0 0 auto;font:500 11px/1 var(--zh);padding:6px 9px;border-radius:6px">{{ p.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px"><span style="white-space:nowrap;font:700 30px/1 var(--mono);color:var(--acc);letter-spacing:-.03em">{{ periodValue }}<span style="font:400 12px/1 var(--zh);color:var(--fg3);margin-left:4px">份</span></span><span style="font:400 11px/1.5 var(--zh);color:var(--fg3);text-wrap:pretty">{{ periodHelp }}</span></div>
+<div style="display:flex;align-items:flex-end;gap:4px;height:34px">
+<sc-for list="{{ spark }}" as="b" hint-placeholder-count="7">
+<span title="{{ b.d }}：{{ b.v }} 份" style="flex:1;height:{{ b.h }};border-radius:2px 2px 0 0;background:{{ b.c }};transform-origin:bottom;animation:cr-grow .6s cubic-bezier(.2,.8,.3,1) both;transition:background .2s ease" style-hover="background:var(--acc)"></span>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">岗位队列 · Queue</span>
+<span style="flex:1;height:1px;background:var(--line)"></span>
+<button class="cr-b" onClick="{{ toggleFollow }}" style="display:flex;align-items:center;gap:6px;font:500 11px/1 var(--zh);padding:7px 11px;border-radius:999px;border:1px solid {{ followBorder }};background:transparent;color:{{ followColor }};cursor:pointer;transition:all .18s ease"><span style="width:5px;height:5px;border-radius:50%;background:currentColor"></span>{{ followLabel }}</button>
+</div>
+<div class="cr-sc" style="display:flex;gap:14px;overflow-x:auto;padding:4px 2px 16px">
+<sc-for list="{{ jobs }}" as="j" hint-placeholder-count="4">
+<div class="cr-job" style="flex:0 0 288px;box-sizing:border-box;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;animation:cr-rise .4s ease both">
+<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;background:{{ j.stSoft }};border-bottom:1px solid var(--line)">
+<span style="width:6px;height:6px;border-radius:50%;background:{{ j.stC }}"></span>
+<span style="font:700 10px/1 var(--mono);letter-spacing:.14em;color:{{ j.stC }};text-transform:uppercase">{{ j.status }}</span>
+<span style="margin-left:auto;font:400 10px/1 var(--mono);color:var(--fg3)">{{ j.stMsg }}</span>
+</div>
+<div style="padding:15px 16px;display:flex;flex-direction:column;gap:11px;flex:1">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+<div style="min-width:0">
+<a href="#" class="cr-jt" style="font:600 15px/1.35 var(--zh);color:var(--fg);text-decoration:none;display:block;transition:color .18s ease">{{ j.name }}</a>
+<span style="font:400 11px/1.5 var(--zh);color:var(--fg3);display:block;margin-top:3px">{{ j.tag }}</span>
+</div>
+<div title="AI 匹配分 {{ j.score }}" style="flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:conic-gradient({{ j.scoreC }} {{ j.scoreDeg }},var(--line) 0)">
+<span style="width:30px;height:30px;border-radius:50%;background:var(--surf2);display:grid;place-items:center;font:700 12px/1 var(--mono);color:{{ j.scoreC }}">{{ j.score }}</span>
+</div>
+</div>
+<span style="font:700 19px/1 var(--mono);color:var(--acc);letter-spacing:-.01em">{{ j.salary }}</span>
+<div style="display:flex;flex-wrap:wrap;gap:5px">
+<sc-for list="{{ j.skills }}" as="k" hint-placeholder-count="3">
+<span style="font:500 11px/1 var(--zh);padding:4px 8px;border-radius:5px;border:1px solid var(--line2);color:var(--fg2)">{{ k }}</span>
+</sc-for>
+</div>
+<div style="margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:11px;border-top:1px solid var(--line)">
+<span style="width:26px;height:26px;border-radius:6px;background:var(--line);flex:0 0 auto"></span>
+<div style="min-width:0"><span style="font:500 12px/1.3 var(--zh);color:var(--fg);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ j.company }}</span><span style="font:400 10px/1.4 var(--zh);color:var(--fg3)">{{ j.addr }}</span></div>
+<span title="活跃度" style="margin-left:auto;flex:0 0 auto;font:600 9px/1 var(--mono);padding:4px 6px;border-radius:4px;background:{{ j.actSoft }};color:{{ j.actC }}">{{ j.act }}</span>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isRules }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:20px;animation:cr-rise .34s ease both">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+<div>
+<h2 style="margin:0;font:600 19px/1.3 var(--zh);color:var(--fg)">筛选规则</h2>
+<p style="margin:6px 0 0;font:400 13px/1.6 var(--zh);color:var(--fg2);max-width:56ch;text-wrap:pretty">每条规则都写成一句话。勾选左侧开关才会生效，点击「包含 / 排除」切换匹配方向。</p>
+</div>
+<div style="display:flex;gap:8px">
+<button class="cr-b" onClick="{{ toggleAdd }}" style="font:600 13px/1 var(--zh);padding:11px 16px;border-radius:8px;border:1px dashed var(--acc);background:transparent;color:var(--acc);cursor:pointer;transition:all .18s ease" style-hover="background:var(--accSoft)">+ 添加规则</button>
+</div>
+</div>
+
+<sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px;border-radius:11px;border:1px dashed var(--acc);background:var(--accSoft);animation:cr-rise .26s ease both">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--acc);text-transform:uppercase">选择规则类型</span>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+<sc-for list="{{ addable }}" as="a" hint-placeholder-count="5">
+<button class="cr-b" style="font:500 13px/1 var(--zh);padding:10px 14px;border-radius:8px;border:1px solid var(--line2);background:var(--surf);color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--acc);color:var(--acc)">{{ a }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ rules }}" as="r" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:11px;border:1px solid var(--line);background:{{ r.bg }};transition:border-color .2s ease" style-hover="border-color:var(--line2)">
+<button class="cr-tog" data-on="{{ r.on }}" onClick="{{ r.toggle }}" aria-pressed="{{ r.on }}" aria-label="启用{{ r.label }}" style="flex:0 0 auto;width:38px;height:21px;border-radius:999px"><i></i></button>
+<div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:7px">
+<span style="font:600 14px/1.4 var(--zh);color:{{ r.fg }}">{{ r.label }}</span>
+<button class="cr-b" onClick="{{ r.flip }}" style="font:600 11px/1 var(--zh);padding:5px 9px;border-radius:5px;border:1px solid {{ r.modeC }};background:transparent;color:{{ r.modeC }};cursor:pointer;transition:all .18s ease;display:{{ r.modeShow }}" style-hover="background:var(--surf3)">{{ r.mode }}</button>
+<span style="font:400 13px/1.4 var(--zh);color:var(--fg3)">{{ r.verb }}</span>
+<sc-for list="{{ r.chips }}" as="c" hint-placeholder-count="2">
+<span style="display:inline-flex;align-items:center;gap:5px;font:500 12px/1 var(--zh);padding:5px 8px;border-radius:5px;background:var(--surf3);color:{{ r.fg }};border:1px solid var(--line)">{{ c }}<span style="color:var(--fg3);cursor:pointer">✕</span></span>
+</sc-for>
+<span style="font:400 12px/1 var(--zh);color:var(--fg3);cursor:text;padding:5px 4px">+ 添加值</span>
+</div>
+<span title="{{ r.help }}" style="flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1px solid var(--line2);color:var(--fg3);font:600 11px/16px var(--mono);text-align:center;cursor:help">?</span>
+</div>
+</sc-for>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
+<sc-for list="{{ sections }}" as="s" hint-placeholder-count="4">
+<div style="border-radius:11px;border:1px solid var(--line);background:var(--surf2);overflow:hidden">
+<button class="cr-b" onClick="{{ s.go }}" style="width:100%;display:flex;align-items:center;gap:12px;padding:15px 17px;border:0;background:transparent;color:var(--fg);cursor:pointer;font:600 14px/1 var(--zh);text-align:left;transition:background .18s ease" style-hover="background:var(--surf3)">
+<span style="width:8px;height:8px;border-right:2px solid var(--acc);border-bottom:2px solid var(--acc);transform:rotate({{ s.deg }});transition:transform .24s cubic-bezier(.2,.8,.3,1)"></span>
+{{ s.label }}
+<span style="font:400 12px/1 var(--zh);color:var(--fg3);font-weight:400">{{ s.hint }}</span>
+<span style="margin-left:auto;font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--fg3)">{{ s.en }}</span>
+</button>
+<sc-if value="{{ s.open }}" hint-placeholder-val="{{ false }}">
+<div style="padding:4px 17px 20px;border-top:1px solid var(--line);animation:cr-rise .26s ease both">
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding-top:16px">
+<sc-for list="{{ s.fields }}" as="f" hint-placeholder-count="4">
+<label style="display:flex;flex-direction:column;gap:6px">
+<span style="font:500 12px/1 var(--zh);color:var(--fg2)">{{ f.label }}</span>
+<span style="display:flex;align-items:center;gap:0;border:1px solid var(--line2);border-radius:8px;background:var(--surf);overflow:hidden">
+<input class="cr-i" value="{{ f.value }}" style="flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font:500 14px/1 var(--mono);padding:11px 12px;outline:none">
+<span style="font:500 11px/1 var(--mono);color:var(--fg3);padding:0 11px;border-left:1px solid var(--line);align-self:stretch;display:flex;align-items:center">{{ f.unit }}</span>
+</span>
+<span style="font:400 11px/1.5 var(--zh);color:var(--fg3)">{{ f.help }}</span>
+</label>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+
+<div style="position:sticky;bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;margin-top:8px;border-radius:11px;border:1px solid {{ dirtyBorder }};background:var(--surf2);backdrop-filter:blur(6px)">
+<span style="display:flex;align-items:center;gap:8px;font:500 13px/1 var(--zh);color:{{ dirtyColor }}"><span style="width:7px;height:7px;border-radius:50%;background:currentColor;animation:cr-pulse 1.6s ease-in-out infinite"></span>{{ dirtyLabel }}</span>
+<button class="cr-b" onClick="{{ save }}" style="font:600 13px/1 var(--zh);padding:11px 18px;border-radius:8px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">保存配置</button>
+<button class="cr-b" style="font:500 13px/1 var(--zh);padding:11px 16px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">重载</button>
+<button class="cr-b" style="font:500 13px/1 var(--zh);padding:11px 16px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">使用推荐配置</button>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<span style="font:400 12px/1 var(--zh);color:var(--fg3)">预设</span>
+<span style="font:500 13px/1 var(--zh);padding:10px 14px;border-radius:8px;border:1px solid var(--line2);background:var(--surf);color:var(--fg)">默认 ▾</span>
+<button class="cr-b" style="font:500 13px/1 var(--zh);padding:11px 14px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">导出</button>
+<button class="cr-b" style="font:500 13px/1 var(--zh);padding:11px 14px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">导入</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAi }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:20px;animation:cr-rise .34s ease both">
+<div>
+<h2 style="margin:0;font:600 19px/1.3 var(--zh);color:var(--fg)">AI 能力</h2>
+<p style="margin:6px 0 0;font:400 13px/1.6 var(--zh);color:var(--fg2);max-width:60ch;text-wrap:pretty">先接一个兼容 OpenAI 协议的模型，再决定它在流水线的哪一步说话。每项能力都可以单独测试。</p>
+</div>
+
+<div style="border-radius:11px;border:1px solid var(--line);background:var(--surf2);overflow:hidden">
+<div style="display:flex;align-items:center;gap:12px;padding:14px 17px;border-bottom:1px solid var(--line)">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">已连接模型 · Models</span>
+<span style="margin-left:auto"></span>
+<button class="cr-b" style="font:600 12px/1 var(--zh);padding:9px 14px;border-radius:7px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)">+ 新建模型</button>
+</div>
+<sc-for list="{{ models }}" as="m" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:14px;padding:15px 17px;border-bottom:1px solid var(--line);transition:background .18s ease" style-hover="background:var(--surf3)">
+<span style="width:34px;height:34px;border-radius:8px;background:var(--surf3);border:1px solid var(--line2);display:grid;place-items:center;font:700 12px/1 var(--mono);color:var(--acc)">{{ m.ini }}</span>
+<div style="min-width:0"><span style="font:600 14px/1.3 var(--zh);color:var(--fg);display:block">{{ m.name }}</span><span style="font:400 11px/1.4 var(--mono);color:var(--fg3)">{{ m.url }}</span></div>
+<span style="margin-left:auto;display:flex;align-items:center;gap:6px;font:600 10px/1 var(--mono);letter-spacing:.1em;padding:5px 8px;border-radius:5px;background:{{ m.soft }};color:{{ m.c }}"><span style="width:5px;height:5px;border-radius:50%;background:currentColor"></span>{{ m.state }}</span>
+<button class="cr-b" style="font:500 12px/1 var(--zh);padding:8px 11px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--acc);color:var(--acc)">测试</button>
+<button class="cr-b" style="font:500 12px/1 var(--zh);padding:8px 11px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">编辑</button>
+</div>
+</sc-for>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:14px">
+<sc-for list="{{ caps }}" as="c" hint-placeholder-count="3">
+<div style="border-radius:11px;border:1px solid {{ c.border }};background:var(--surf2);display:flex;flex-direction:column;overflow:hidden;transition:border-color .2s ease">
+<div style="padding:16px 17px;display:flex;flex-direction:column;gap:11px;flex:1">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:9px;height:9px;border-radius:2px;background:{{ c.dot }}"></span>
+<span style="font:600 15px/1 var(--zh);color:var(--fg)">{{ c.label }}</span>
+<button class="cr-tog" data-on="{{ c.on }}" onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}" aria-label="启用{{ c.label }}" style="margin-left:auto;flex:0 0 auto;width:38px;height:21px;border-radius:999px"><i></i></button>
+</div>
+<p style="margin:0;font:400 12px/1.65 var(--zh);color:var(--fg2);text-wrap:pretty">{{ c.desc }}</p>
+<div style="display:flex;align-items:center;gap:7px;font:400 11px/1 var(--mono);color:var(--fg3)"><span style="padding:4px 7px;border-radius:5px;background:var(--surf3);color:var(--fg2)">{{ c.model }}</span><span>{{ c.meta }}</span></div>
+<div class="cr-sc" style="font:400 11px/1.7 var(--mono);color:var(--fg3);background:var(--surf);border:1px solid var(--line);border-radius:8px;padding:10px 12px;max-height:82px;overflow:auto;white-space:pre-wrap">{{ c.prompt }}</div>
+</div>
+<div style="display:flex;gap:8px;padding:12px 17px;border-top:1px solid var(--line);background:var(--surf)">
+<button class="cr-b" style="flex:1;font:600 12px/1 var(--zh);padding:10px 0;border-radius:7px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--acc);color:var(--acc)">编辑提示词</button>
+<button class="cr-b" style="flex:0 0 auto;font:600 12px/1 var(--zh);padding:10px 14px;border-radius:7px;border:0;background:var(--accSoft);color:var(--acc);cursor:pointer;transition:all .18s ease" style-hover="background:var(--acc);color:var(--accInk)">测试</button>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isLogs }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:16px;animation:cr-rise .34s ease both">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+<h2 style="margin:0;font:600 19px/1.3 var(--zh);color:var(--fg)">日志</h2>
+<span style="font:400 13px/1 var(--zh);color:var(--fg3)">共 {{ logCount }} 条</span>
+<div style="display:flex;gap:6px;margin-left:14px">
+<sc-for list="{{ logFilters }}" as="f" hint-placeholder-count="5">
+<button class="cr-seg" data-active="{{ f.active }}" onClick="{{ f.go }}" style="font:500 12px/1 var(--zh);padding:8px 12px;border-radius:7px">{{ f.label }}<span style="font:600 10px/1 var(--mono);margin-left:6px;color:var(--fg3)">{{ f.n }}</span></button>
+</sc-for>
+</div>
+<button class="cr-b" style="margin-left:auto;font:500 12px/1 var(--zh);padding:9px 14px;border-radius:7px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--err);color:var(--err)">清空日志</button>
+</div>
+
+<div style="border-radius:11px;border:1px solid var(--line);background:var(--surf2);overflow:hidden">
+<div style="display:grid;grid-template-columns:96px 1fr 108px 1.4fr 34px;gap:14px;padding:11px 16px;background:var(--surf3);border-bottom:1px solid var(--line);font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--fg3);text-transform:uppercase">
+<span>时间</span><span>对象 / 岗位</span><span>结果</span><span>原因 / 摘要</span><span></span>
+</div>
+<sc-for list="{{ logs }}" as="l" hint-placeholder-count="6">
+<div>
+<button class="cr-row cr-b" data-open="{{ l.open }}" onClick="{{ l.go }}" style="width:100%;display:grid;grid-template-columns:96px 1fr 108px 1.4fr 34px;gap:14px;align-items:center;padding:13px 16px;border:0;border-bottom:1px solid var(--line);cursor:pointer;text-align:left">
+<span style="font:400 12px/1 var(--mono);color:var(--fg3)">{{ l.time }}</span>
+<span style="font:500 13px/1.3 var(--zh);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ l.title }}</span>
+<span style="justify-self:start;font:600 10px/1 var(--mono);letter-spacing:.1em;padding:5px 8px;border-radius:5px;background:{{ l.soft }};color:{{ l.c }}">{{ l.state }}</span>
+<span style="font:400 12px/1.4 var(--zh);color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ l.msg }}</span>
+<span style="justify-self:end;width:7px;height:7px;border-right:2px solid var(--fg3);border-bottom:2px solid var(--fg3);transform:rotate({{ l.deg }});transition:transform .24s cubic-bezier(.2,.8,.3,1)"></span>
+</button>
+<sc-if value="{{ l.open }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:280px 1fr;gap:18px;padding:18px 16px 22px;border-bottom:1px solid var(--line);background:var(--surf);animation:cr-rise .26s ease both">
+<div style="border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:9px;background:var(--surf2)">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.14em;color:var(--fg3);text-transform:uppercase">岗位快照</span>
+<span style="font:600 15px/1.35 var(--zh);color:var(--fg)">{{ l.title }}</span>
+<span style="font:700 18px/1 var(--mono);color:var(--acc)">{{ l.salary }}</span>
+<span style="font:400 12px/1.6 var(--zh);color:var(--fg2)">{{ l.company }}<br>{{ l.addr }}</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+<div style="display:grid;grid-template-columns:64px 1fr;gap:7px 14px;font:400 13px/1.5 var(--zh)">
+<span style="color:var(--fg3)">时间</span><span style="color:var(--fg);font-family:var(--mono);font-size:12px">{{ l.full }}</span>
+<span style="color:var(--fg3)">结果</span><span style="color:{{ l.c }};font-weight:600">{{ l.state }}</span>
+<span style="color:var(--fg3)">原因</span><span style="color:var(--fg)">{{ l.msg }}</span>
+</div>
+<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:9px;padding:10px 13px;background:var(--aiSoft);border-bottom:1px solid var(--line)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ai)"></span><span style="font:600 11px/1 var(--mono);letter-spacing:.12em;color:var(--ai)">AI 过滤 · RESPONSE</span><span style="margin-left:auto;font:400 11px/1 var(--mono);color:var(--fg3)">{{ l.tokens }}</span></div>
+<pre class="cr-sc" style="margin:0;padding:13px;font:400 11px/1.7 var(--mono);color:var(--fg2);white-space:pre-wrap;max-height:150px;overflow:auto;background:var(--surf2)">{{ l.ai }}</pre>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAbout }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:1fr 300px;gap:24px;animation:cr-rise .34s ease both">
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="padding:18px;border-radius:11px;border:1px solid var(--ok);background:var(--okSoft)">
+<p style="margin:0;font:600 15px/1.4 var(--zh);color:var(--fg)">扩展完全免费且开源</p>
+<p style="margin:6px 0 0;font:400 13px/1.6 var(--zh);color:var(--fg2)">要是付费购买请申请退款并举报，谢谢~</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:11px;border:1px solid var(--line);background:var(--surf2)">
+<div style="display:grid;grid-template-columns:76px 1fr;gap:9px 14px;font:400 13px/1.6 var(--zh)">
+<span style="color:var(--fg3)">原作者</span><span><a href="https://github.com/Ocyss" target="_blank">Ocyss_04</a></span>
+<span style="color:var(--fg3)">鸣谢</span><span><a href="https://github.com/yangfeng20" target="_blank">yangfeng20</a> · <a href="https://github.com/engvuchen" target="_blank">engvuchen</a></span>
+<span style="color:var(--fg3)">开源地址</span><span><a href="https://github.com/ocyss/boss-helper" target="_blank">github.com/ocyss/boss-helper</a></span>
+<span style="color:var(--fg3)">脚本版</span><span><a href="https://greasyfork.org/zh-CN/scripts/491340" target="_blank">greasyfork.org / 491340</a></span>
+</div>
+<p style="margin:0;font:400 13px/1.7 var(--zh);color:var(--fg2);text-wrap:pretty">该脚本分为浏览器扩展和油猴脚本，两版本皆已开源。除非不可抗因素，一般情况下不会停更。</p>
+</div>
+<div style="padding:16px 18px;border-radius:11px;border:1px solid var(--err);background:var(--errSoft)">
+<p style="margin:0;font:600 14px/1.4 var(--zh);color:var(--err)">风险提示</p>
+<p style="margin:6px 0 0;font:400 13px/1.65 var(--zh);color:var(--fg2);text-wrap:pretty">本项目仅供学习交流。自动化投递、自动化沟通和第三方模型调用都可能带来账号风控、信息误发或隐私泄露风险，使用前请充分理解配置含义。</p>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">赞赏 · Support</span>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surf2);display:flex;flex-direction:column;gap:8px;align-items:center;cursor:pointer;transition:border-color .2s ease" style-hover="border-color:var(--acc)"><span style="width:100%;aspect-ratio:1;border-radius:6px;background:repeating-linear-gradient(45deg,var(--surf3) 0 6px,var(--surf) 6px 12px);display:grid;place-items:center;font:400 9px/1.4 var(--mono);color:var(--fg3);text-align:center">赞赏码<br>QR</span><span style="font:500 12px/1 var(--zh);color:var(--fg2)">Ocyss_04</span></div>
+<div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surf2);display:flex;flex-direction:column;gap:8px;align-items:center;cursor:pointer;transition:border-color .2s ease" style-hover="border-color:var(--acc)"><span style="width:100%;aspect-ratio:1;border-radius:6px;background:repeating-linear-gradient(45deg,var(--surf3) 0 6px,var(--surf) 6px 12px);display:grid;place-items:center;font:400 9px/1.4 var(--mono);color:var(--fg3);text-align:center">赞赏码<br>QR</span><span style="font:500 12px/1 var(--zh);color:var(--fg2)">SHUAI</span></div>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+
+<sc-if value="{{ chatOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;top:64px;right:0;bottom:0;width:420px;z-index:70;display:flex;flex-direction:column;background:var(--surf);border-left:1px solid var(--line);box-shadow:-30px 0 60px -30px rgba(0,0,0,.6);animation:cr-slide .28s cubic-bezier(.2,.8,.3,1) both">
+<div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surf2)">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">对话 · Replies</span>
+<button class="cr-b" style="margin-left:auto;font:500 11px/1 var(--zh);padding:7px 10px;border-radius:999px;border:1px solid var(--acc);background:transparent;color:var(--acc);cursor:pointer">自动跟随</button>
+<button class="cr-b" onClick="{{ closeChat }}" aria-label="关闭对话" style="font:400 16px/1 var(--zh);width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--err);color:var(--err)">✕</button>
+</div>
+<div class="cr-sc" style="display:flex;gap:7px;padding:11px 16px;border-bottom:1px solid var(--line);overflow-x:auto">
+<sc-for list="{{ convos }}" as="c" hint-placeholder-count="3">
+<button class="cr-seg" data-active="{{ c.active }}" style="flex:0 0 auto;display:flex;align-items:center;gap:7px;font:500 12px/1 var(--zh);padding:8px 11px;border-radius:999px"><span style="width:20px;height:20px;border-radius:50%;background:var(--line)"></span>{{ c.name }}<span style="width:6px;height:6px;border-radius:50%;background:var(--acc);display:{{ c.dot }}"></span></button>
+</sc-for>
+</div>
+<div class="cr-sc" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{ msgs }}" as="m" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;align-items:{{ m.align }};gap:4px;animation:cr-rise .3s ease both">
+<span style="font:400 10px/1 var(--mono);color:var(--fg3)">{{ m.who }} · {{ m.t }}</span>
+<span style="max-width:85%;font:400 13px/1.65 var(--zh);color:{{ m.fg }};background:{{ m.bg }};border:1px solid {{ m.bd }};border-radius:{{ m.radius }};padding:10px 13px;white-space:pre-wrap">{{ m.text }}</span>
+</div>
+</sc-for>
+<div style="display:flex;align-items:center;gap:9px;color:var(--fg3)">
+<span style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;width:16px;height:16px">
+<sc-for list="{{ dots }}" as="d" hint-placeholder-count="16"><span style="border-radius:1px;background:currentColor;opacity:{{ d.o }};transition:opacity .12s linear"></span></sc-for>
+</span>
+<span style="font:500 12px/1 var(--mono);letter-spacing:.06em">{{ thinking }}</span><span style="width:7px;height:13px;background:var(--acc);animation:cr-caret 1s steps(1) infinite"></span>
+</div>
+</div>
+<div style="border-top:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:var(--surf2)">
+<div style="display:flex;align-items:center;gap:9px">
+<span style="font:600 10px/1 var(--mono);letter-spacing:.1em;padding:5px 8px;border-radius:5px;background:var(--accSoft);color:var(--acc)">待发送</span>
+<span style="font:400 11px/1 var(--zh);color:var(--fg3)">草稿由 AI 生成，可编辑后发送</span>
+</div>
+<textarea class="cr-i cr-sc" rows="3" style="resize:none;border:1px solid var(--line2);border-radius:9px;background:var(--surf);color:var(--fg);font:400 13px/1.65 var(--zh);padding:11px 12px;outline:none;transition:border-color .18s ease" style-focus="border-color:var(--acc)">您好，我这边主要做 Vue 3 + TypeScript 的前端开发，之前独立负责过一个日活 30 万的营销活动平台，从组件库到性能优化都参与过。看到贵司这个岗位对工程化有要求，应该比较匹配，方便详细聊聊吗？</textarea>
+<div style="display:flex;gap:8px">
+<button class="cr-b" style="flex:1;font:600 13px/1 var(--zh);padding:11px 0;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--ai);color:var(--ai)">重新生成草稿</button>
+<button class="cr-b" style="flex:0 0 auto;font:600 13px/1 var(--zh);padding:11px 22px;border-radius:8px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)" style-active="transform:scale(.97)">发送</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ onboard }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;inset:0;z-index:90;background:rgba(4,10,14,.72);display:grid;place-items:center;padding:40px;backdrop-filter:blur(3px);animation:cr-rise .22s ease both">
+<div style="width:min(560px,100%);border-radius:14px;border:1px solid var(--line2);background:var(--surf);overflow:hidden;box-shadow:0 40px 90px -30px rgba(0,0,0,.7)">
+<div style="height:5px;background:repeating-linear-gradient(45deg,var(--acc) 0 10px,var(--surf3) 10px 20px);background-size:28.3px 28.3px;animation:cr-hazard 2s linear infinite"></div>
+<div style="padding:26px 28px 24px;display:flex;flex-direction:column;gap:18px">
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--acc);text-transform:uppercase">首次使用 · Safety checklist</span>
+<h2 style="margin:9px 0 0;font:600 22px/1.3 var(--zh);color:var(--fg)">开始前，先过一遍这三件事</h2>
+</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ steps }}" as="s" hint-placeholder-count="3">
+<div style="display:flex;gap:14px;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:var(--surf2)">
+<span style="flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accSoft);color:var(--acc);display:grid;place-items:center;font:700 12px/1 var(--mono)">{{ s.n }}</span>
+<div><p style="margin:0;font:600 14px/1.4 var(--zh);color:var(--fg)">{{ s.t }}</p><p style="margin:4px 0 0;font:400 13px/1.6 var(--zh);color:var(--fg2);text-wrap:pretty">{{ s.d }}</p></div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:10px">
+<button class="cr-b" onClick="{{ closeOnboard }}" style="flex:1;font:600 14px/1 var(--zh);padding:13px 0;border-radius:9px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">我已了解，开始配置</button>
+<button class="cr-b" onClick="{{ closeOnboard }}" style="font:500 14px/1 var(--zh);padding:13px 20px;border-radius:9px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">稍后</button>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</sc-if>
+
+<sc-if value="{{ isOptions }}" hint-placeholder-val="{{ false }}">
+<div style="min-height:100vh;background:var(--bg2);padding:0 0 80px;animation:cr-rise .34s ease both">
+<div style="max-width:1100px;margin:0 auto;padding:56px 28px 0">
+
+<div style="display:grid;grid-template-columns:1.25fr 1fr;gap:32px;align-items:center;padding:36px;border-radius:16px;border:1px solid var(--line);background:var(--surf);position:relative;overflow:hidden">
+<span style="position:absolute;top:0;left:0;right:0;height:4px;background:repeating-linear-gradient(45deg,var(--acc) 0 10px,transparent 10px 20px);background-size:28.3px 28.3px;animation:cr-hazard 2.4s linear infinite"></span>
+<div style="display:flex;flex-direction:column;gap:16px">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.18em;color:var(--acc);text-transform:uppercase">Boss·Helper v0.5.0 · 扩展设置</span>
+<h1 style="margin:0;font:700 40px/1.15 var(--ui);letter-spacing:-.02em;color:var(--fg);text-wrap:balance">主界面在<br>岗位列表页里</h1>
+<p style="margin:0;font:400 15px/1.7 var(--zh);color:var(--fg2);max-width:44ch;text-wrap:pretty">Boss-Helper 不是一个独立网站。它注入在 BOSS 直聘的岗位推荐页和搜索页上，本页只提供入口、健康检查和恢复说明。</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap">
+<button class="cr-b" onClick="{{ goPanel }}" style="display:flex;align-items:center;gap:9px;font:600 15px/1 var(--zh);padding:15px 22px;border-radius:10px;border:0;background:var(--acc);color:var(--accInk);cursor:pointer;transition:all .16s ease" style-hover="filter:brightness(1.1)" style-active="transform:scale(.98)">打开或切换到岗位页 <span style="font-family:var(--mono)">→</span></button>
+<button class="cr-b" style="font:500 15px/1 var(--zh);padding:15px 20px;border-radius:10px;border:1px solid var(--line2);background:transparent;color:var(--fg2);cursor:pointer;transition:all .18s ease" style-hover="border-color:var(--fg3);color:var(--fg)">查看使用指南</button>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">健康检查 · Diagnostics</span>
+<sc-for list="{{ diag }}" as="d" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:11px;padding:13px 15px;border-radius:10px;border:1px solid var(--line);background:var(--surf2)">
+<span style="width:7px;height:7px;border-radius:50%;background:{{ d.c }};flex:0 0 auto"></span>
+<span style="font:500 13px/1.3 var(--zh);color:var(--fg)">{{ d.label }}</span>
+<span style="margin-left:auto;font:600 10px/1 var(--mono);letter-spacing:.1em;color:{{ d.c }}">{{ d.state }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:16px;margin-top:22px">
+<sc-for list="{{ steps }}" as="s" hint-placeholder-count="3">
+<div style="padding:22px;border-radius:13px;border:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;gap:11px;transition:border-color .2s ease,transform .2s ease" style-hover="border-color:var(--acc);transform:translateY(-2px)">
+<span style="font:700 28px/1 var(--mono);color:var(--accSoft);-webkit-text-stroke:1px var(--acc);color:transparent">0{{ s.n }}</span>
+<p style="margin:0;font:600 16px/1.35 var(--zh);color:var(--fg)">{{ s.t }}</p>
+<p style="margin:0;font:400 13px/1.7 var(--zh);color:var(--fg2);text-wrap:pretty">{{ s.d }}</p>
+</div>
+</sc-for>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+<div style="padding:24px;border-radius:13px;border:1px solid var(--line);background:var(--surf)">
+<h2 style="margin:0 0 14px;font:600 17px/1.3 var(--zh);color:var(--fg)">没有看到主界面？</h2>
+<div style="display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ trouble }}" as="t" hint-placeholder-count="3">
+<div style="display:flex;gap:10px;font:400 13px/1.7 var(--zh);color:var(--fg2)"><span style="color:var(--acc);font-family:var(--mono)">→</span><span style="text-wrap:pretty">{{ t }}</span></div>
+</sc-for>
+</div>
+</div>
+<div style="padding:24px;border-radius:13px;border:1px solid var(--err);background:var(--errSoft)">
+<h2 style="margin:0 0 12px;font:600 17px/1.3 var(--zh);color:var(--err)">使用须知</h2>
+<p style="margin:0;font:400 13px/1.75 var(--zh);color:var(--fg2);text-wrap:pretty">本项目仅供学习、研究和个人效率探索，请遵守招聘平台规则和相关法律法规。自动化投递、自动化沟通和第三方模型调用都可能带来账号风控、信息误发或隐私泄露风险。使用前请充分理解配置含义，并自行承担使用结果。</p>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSystem }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:1180px;margin:0 auto;padding:48px 28px 90px;display:flex;flex-direction:column;gap:40px;animation:cr-rise .34s ease both">
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.18em;color:var(--acc);text-transform:uppercase">组件库 · Component system</span>
+<h1 style="margin:10px 0 0;font:700 34px/1.15 var(--ui);letter-spacing:-.02em;color:var(--fg)">控制室 · 通用组件</h1>
+<p style="margin:10px 0 0;font:400 14px/1.7 var(--zh);color:var(--fg2);max-width:66ch;text-wrap:pretty">全部颜色走 CSS 变量（<span style="font-family:var(--mono);font-size:13px">--acc / --surf / --fg / --line</span>），深浅主题只换变量值。迁移到 Nuxt UI 4 时，把这层变量映射到 <span style="font-family:var(--mono);font-size:13px">app.config.ts</span> 的 ui.colors 与 @theme 即可。</p>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">01 · 色板 Palette</span>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:10px;margin-top:14px">
+<sc-for list="{{ palette }}" as="p" hint-placeholder-count="6">
+<div style="border-radius:10px;border:1px solid var(--line);overflow:hidden;background:var(--surf2)">
+<span style="display:block;height:56px;background:{{ p.v }}"></span>
+<span style="display:block;padding:9px 11px;font:500 11px/1.5 var(--mono);color:var(--fg2)">{{ p.n }}<br><span style="color:var(--fg3)">{{ p.role }}</span></span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">02 · 字体 Type</span>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px">
+<div style="padding:20px;border-radius:11px;border:1px solid var(--line);background:var(--surf)"><span style="font:400 10px/1 var(--mono);color:var(--fg3)">Space Grotesk · 标题 / 数字标签</span><p style="margin:12px 0 0;font:700 30px/1.1 var(--ui);letter-spacing:-.02em;color:var(--fg)">Control Room</p></div>
+<div style="padding:20px;border-radius:11px;border:1px solid var(--line);background:var(--surf)"><span style="font:400 10px/1 var(--mono);color:var(--fg3)">Noto Sans SC · 正文</span><p style="margin:12px 0 0;font:400 18px/1.6 var(--zh);color:var(--fg)">投递、筛选、回复<br><span style="font-size:13px;color:var(--fg2)">正文 13px / 行高 1.65</span></p></div>
+<div style="padding:20px;border-radius:11px;border:1px solid var(--line);background:var(--surf)"><span style="font:400 10px/1 var(--mono);color:var(--fg3)">JetBrains Mono · 读数 / 时间 / ID</span><p style="margin:12px 0 0;font:700 30px/1.1 var(--mono);color:var(--acc)">128<span style="font-size:14px;font-weight:400;color:var(--fg3)">/155</span></p></div>
+</div>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">03 · 按钮 Buttons（含全部状态）</span>
+<div style="margin-top:14px;padding:22px;border-radius:11px;border:1px solid var(--line);background:var(--surf);display:flex;flex-direction:column;gap:18px">
+<div style="display:grid;grid-template-columns:110px repeat(4,1fr);gap:12px;align-items:center">
+<span style="font:500 11px/1 var(--mono);color:var(--fg3)">状态 →</span>
+<span style="font:500 11px/1 var(--mono);color:var(--fg3)">默认</span><span style="font:500 11px/1 var(--mono);color:var(--fg3)">悬停</span><span style="font:500 11px/1 var(--mono);color:var(--fg3)">按下</span><span style="font:500 11px/1 var(--mono);color:var(--fg3)">禁用</span>
+</div>
+<sc-for list="{{ btnRows }}" as="b" hint-placeholder-count="3">
+<div style="display:grid;grid-template-columns:110px repeat(4,1fr);gap:12px;align-items:center">
+<span style="font:500 12px/1.4 var(--zh);color:var(--fg2)">{{ b.name }}</span>
+<button class="cr-b" style="font:600 13px/1 var(--zh);padding:11px 0;border-radius:8px;border:1px solid {{ b.bd }};background:{{ b.bg }};color:{{ b.fg }};cursor:pointer;transition:all .16s ease">{{ b.label }}</button>
+<button class="cr-b" style="font:600 13px/1 var(--zh);padding:11px 0;border-radius:8px;border:1px solid {{ b.hbd }};background:{{ b.hbg }};color:{{ b.hfg }};cursor:pointer">{{ b.label }}</button>
+<button class="cr-b" style="font:600 13px/1 var(--zh);padding:11px 0;border-radius:8px;border:1px solid {{ b.hbd }};background:{{ b.hbg }};color:{{ b.hfg }};cursor:pointer;transform:scale(.97);filter:brightness(.92)">{{ b.label }}</button>
+<button disabled style="font:600 13px/1 var(--zh);padding:11px 0;border-radius:8px;border:1px solid {{ b.bd }};background:{{ b.bg }};color:{{ b.fg }};opacity:.4;cursor:not-allowed">{{ b.label }}</button>
+</div>
+</sc-for>
+<p style="margin:0;font:400 12px/1.7 var(--zh);color:var(--fg3);text-wrap:pretty">用法：一屏只允许一个实心琥珀按钮，它永远是「会真的动起来」的那个动作（开始 / 保存 / 发送）。破坏性动作用描边 + 红字，悬停才填充。键盘焦点一律 <span style="font-family:var(--mono);font-size:11px">2px var(--acc)</span> 外描边。</p>
+</div>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">04 · 状态标记 Status tokens</span>
+<div style="margin-top:14px;padding:22px;border-radius:11px;border:1px solid var(--line);background:var(--surf);display:flex;flex-wrap:wrap;gap:10px">
+<sc-for list="{{ tokens }}" as="t" hint-placeholder-count="8">
+<span style="display:inline-flex;align-items:center;gap:7px;font:600 11px/1 var(--mono);letter-spacing:.1em;padding:8px 11px;border-radius:6px;background:{{ t.soft }};color:{{ t.c }}"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ t.label }}</span>
+</sc-for>
+</div>
+<p style="margin:10px 0 0;font:400 12px/1.7 var(--zh);color:var(--fg3);text-wrap:pretty">对应 <span style="font-family:var(--mono);font-size:11px">src/components/jobStatusTokens.ts</span> 的 8 个状态，一一映射，迁移时只替换 background / foreground 两个值。</p>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">05 · 表单 Forms</span>
+<div style="margin-top:14px;padding:22px;border-radius:11px;border:1px solid var(--line);background:var(--surf);display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+<label style="display:flex;flex-direction:column;gap:7px"><span style="font:500 12px/1 var(--zh);color:var(--fg2)">文本输入</span><input class="cr-i" placeholder="输入条件后回车" style="border:1px solid var(--line2);border-radius:8px;background:var(--surf2);color:var(--fg);font:400 14px/1 var(--zh);padding:12px;outline:none;transition:border-color .18s ease" style-focus="border-color:var(--acc)"></label>
+<label style="display:flex;flex-direction:column;gap:7px"><span style="font:500 12px/1 var(--zh);color:var(--fg2)">数字 + 单位</span><span style="display:flex;border:1px solid var(--line2);border-radius:8px;background:var(--surf2);overflow:hidden"><input class="cr-i" value="5000" style="flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font:500 14px/1 var(--mono);padding:12px;outline:none"><span style="font:500 11px/1 var(--mono);color:var(--fg3);padding:0 12px;border-left:1px solid var(--line);display:flex;align-items:center">ms</span></span></label>
+<div style="display:flex;flex-direction:column;gap:7px"><span style="font:500 12px/1 var(--zh);color:var(--fg2)">开关 / 分段</span><div style="display:flex;align-items:center;gap:12px"><button class="cr-tog" data-on="true" style="width:38px;height:21px;border-radius:999px"><i></i></button><button class="cr-tog" data-on="false" style="width:38px;height:21px;border-radius:999px"><i></i></button><span style="display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden"><span style="font:500 12px/1 var(--zh);padding:8px 12px;background:var(--accSoft);color:var(--acc)">包含</span><span style="font:500 12px/1 var(--zh);padding:8px 12px;color:var(--fg3);border-left:1px solid var(--line2)">排除</span></span></div></div>
+</div>
+</div>
+
+<div>
+<span style="font:500 10px/1 var(--mono);letter-spacing:.16em;color:var(--fg3);text-transform:uppercase">06 · 迁移说明 Migration notes</span>
+<div style="margin-top:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="padding:18px;border-radius:11px;border:1px solid var(--line);background:var(--surf)">
+<p style="margin:0;font:600 14px/1.4 var(--zh);color:var(--fg)">{{ n.t }}</p>
+<p style="margin:7px 0 0;font:400 13px/1.7 var(--zh);color:var(--fg2);text-wrap:pretty">{{ n.d }}</p>
+<p style="margin:9px 0 0;font:400 11px/1.6 var(--mono);color:var(--fg3)">{{ n.f }}</p>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#F5A524&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#F5A524&quot;,&quot;#4FD98B&quot;,&quot;#5FB8FF&quot;,&quot;#FF8A5B&quot;],&quot;section&quot;:&quot;主题&quot;},&quot;startTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;主题&quot;},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;panel&quot;,&quot;options&quot;:[&quot;panel&quot;,&quot;options&quot;,&quot;system&quot;],&quot;tsType&quot;:&quot;'panel' | 'options' | 'system'&quot;,&quot;section&quot;:&quot;布局&quot;},&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;console&quot;,&quot;options&quot;:[&quot;console&quot;,&quot;rules&quot;,&quot;ai&quot;,&quot;logs&quot;,&quot;about&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;布局&quot;}}">
+class Component extends DCLogic {
+  state = {
+    theme: null, view: null, tab: null, running: true, stopped: false,
+    chat: false, help: false, onboard: false, follow: true, dirty: true,
+    period: 1, addOpen: false, openLog: 'l2', logFilter: '全部',
+    sec: { greet: false, delay: false, look: false, amap: false },
+    ruleOn: { a: true, b: true, c: true, d: false, e: true },
+    ruleInc: { a: false, b: true, c: false },
+    capOn: { g: true, f: true, r: false },
+    dotStep: 0, thinkI: 0,
+  };
+
+  componentDidMount() {
+    this.t1 = setInterval(() => this.setState(s => ({ dotStep: (s.dotStep + 1) % 16 })), 130);
+    this.t2 = setInterval(() => this.setState(s => ({ thinkI: (s.thinkI + 1) % 4 })), 2600);
+    this.applyAccent();
+  }
+  componentDidUpdate() { this.applyAccent(); }
+  componentWillUnmount() { clearInterval(this.t1); clearInterval(this.t2); }
+
+  applyAccent() {
+    const a = this.props.accent;
+    if (!a || a === this.lastAccent) return;
+    this.lastAccent = a;
+    const r = document.documentElement.style;
+    r.setProperty('--acc', a);
+    r.setProperty('--acc2', `oklch(from ${a} calc(l * 1.12) c h)`);
+    r.setProperty('--accSoft', `color-mix(in srgb, ${a} 15%, transparent)`);
+  }
+
+  set(k, v) { this.setState({ [k]: v }); }
+  flipIn(group, k) { this.setState(s => ({ [group]: { ...s[group], [k]: !s[group][k] } })); }
+
+  renderVals() {
+    const p = this.props;
+    const s = {
+      ...this.state,
+      theme: this.state.theme ?? p.startTheme ?? 'dark',
+      view: this.state.view ?? p.startView ?? 'panel',
+      tab: this.state.tab ?? p.startTab ?? 'console',
+    };
+    const views = [['panel', '注入面板'], ['options', '扩展设置页'], ['system', '组件库']]
+      .map(([v, label]) => ({ label, active: s.view === v, go: () => this.set('view', v) }));
+
+    const tabDefs = [
+      ['console', '控制台', '', 'mute'],
+      ['rules', '规则', s.dirty ? '未保存' : '', 'warn'],
+      ['ai', 'AI', '2', 'ai'],
+      ['logs', '日志', '48', 'mute'],
+      ['about', '关于', '', 'mute'],
+    ];
+    const tabs = tabDefs.map(([v, label, badge, tone]) => ({
+      label, badge, tone, badgeShow: badge ? 'inline-block' : 'none',
+      active: s.tab === v, go: () => this.set('tab', v),
+    }));
+
+    const submitted = s.stopped ? 120 : 53, limit = 120;
+    const pct = ((submitted / limit) * 100).toFixed(1);
+    const filled = Math.round((submitted / limit) * 30);
+    const ticks = Array.from({ length: 30 }, (_, i) => ({
+      c: i < filled ? 'var(--acc)' : i === filled && s.running ? 'var(--acc2)' : 'var(--line)',
+    }));
+
+    const stream = [
+      { t: '11:24:07', tag: 'AI', c: 'var(--ai)', msg: '高级前端工程师 · 评分 +42 / -8 → 34' },
+      { t: '11:24:02', tag: 'OK', c: 'var(--ok)', msg: '已投递 · 某某科技有限公司' },
+      { t: '11:23:55', tag: 'SKIP', c: 'var(--acc)', msg: '相同 HR 过滤 · 已沟通过' },
+      { t: '11:23:48', tag: 'REQ', c: 'var(--info)', msg: '拉取岗位详情 job_detail/9f2a…' },
+      { t: '11:23:41', tag: 'OK', c: 'var(--ok)', msg: '已投递 · 某某网络科技' },
+      { t: '11:23:30', tag: 'ERR', c: 'var(--err)', msg: '岗位详情超时，已重试 1/3' },
+    ];
+
+    const stats = [
+      { en: 'Scanned', label: '岗位总数', value: '248', unit: '份', w: '100%', c: 'var(--fg2)', help: '统计当天脚本扫描过的所有岗位' },
+      { en: 'Filtered', label: '过滤比例', value: '78.6', unit: '%', w: '78.6%', c: 'var(--acc)', help: '统计当天岗位过滤的比例，被过滤/总数' },
+      { en: 'Repeat', label: '重复比例', value: '31.4', unit: '%', w: '31.4%', c: 'var(--info)', help: '统计当天刷到了多少处理过的岗位' },
+      { en: 'Inactive', label: '不活跃比例', value: '12.9', unit: '%', w: '12.9%', c: 'var(--err)', help: '统计当天岗位中的活跃情况，不活跃/总数' },
+    ];
+
+    const periodData = [
+      { label: '近三日', v: 96, help: '愿你每一次投递都能得到回应' },
+      { label: '本周', v: 193, help: '愿你早日找到心满意足的工作' },
+      { label: '本月', v: 604, help: '愿你在面试中得到满意的结果' },
+      { label: '历史', v: 2418, help: '愿你能早九晚五还双休带五险' },
+    ];
+    const periods = periodData.map((p, i) => ({ label: p.label, active: s.period === i, go: () => this.set('period', i) }));
+    const sparkRaw = [18, 31, 12, 44, 39, 26, 53];
+    const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const spark = sparkRaw.map((v, i) => ({
+      v, d: days[i], h: `${Math.round((v / 53) * 100)}%`,
+      c: i === 6 ? 'var(--acc)' : 'var(--line2)',
+    }));
+
+    const jobs = [
+      { name: '前端开发工程师', tag: '互联网 · 本科 · 500-2000人', salary: '20-35K·14薪', skills: ['Vue', 'TypeScript', 'Vite'], company: '某某科技有限公司', addr: '杭州 · 未来科技城', status: '成功', stC: 'var(--ok)', stSoft: 'var(--okSoft)', stMsg: '11:24:02', score: 82, act: '刚刚活跃', actC: 'var(--ok)', actSoft: 'var(--okSoft)' },
+      { name: '高级前端工程师(Web)', tag: '电子商务 · 本科 · 1000-9999人', salary: '25-40K·15薪', skills: ['React', 'Node.js', '性能优化'], company: '某某网络科技', addr: '上海 · 漕河泾', status: 'AI 处理中', stC: 'var(--ai)', stSoft: 'var(--aiSoft)', stMsg: '评分中', score: 71, act: '3日内', actC: 'var(--acc)', actSoft: 'var(--accSoft)' },
+      { name: 'Node.js 服务端开发', tag: '企业服务 · 本科 · 100-499人', salary: '18-30K·13薪', skills: ['Node.js', 'MySQL', 'Redis'], company: '某某信息技术', addr: '北京 · 中关村', status: '已跳过', stC: 'var(--acc)', stSoft: 'var(--accSoft)', stMsg: '相同 HR', score: 44, act: '半月前', actC: 'var(--err)', actSoft: 'var(--errSoft)' },
+      { name: '全栈工程师', tag: '人工智能 · 硕士 · 20-99人', salary: '15-25K', skills: ['Python', 'FastAPI', 'LLM'], company: '某某智能科技', addr: '深圳 · 科技园', status: '请求中', stC: 'var(--info)', stSoft: 'var(--infoSoft)', stMsg: '拉取详情', score: 66, act: '刚刚活跃', actC: 'var(--ok)', actSoft: 'var(--okSoft)' },
+      { name: 'Web 前端(社招)', tag: '游戏 · 本科 · 10000人以上', salary: '22-38K·14薪', skills: ['Cocos', 'WebGL'], company: '某某互动娱乐', addr: '广州 · 天河区', status: '失败', stC: 'var(--err)', stSoft: 'var(--errSoft)', stMsg: '详情超时', score: 58, act: '一周内', actC: 'var(--acc)', actSoft: 'var(--accSoft)' },
+    ].map(j => ({
+      ...j,
+      scoreDeg: `${Math.round(j.score * 3.6)}deg`,
+      scoreC: j.score >= 70 ? 'var(--ok)' : j.score >= 55 ? 'var(--acc)' : 'var(--err)',
+    }));
+
+    const ruleDefs = [
+      { k: 'a', label: '岗位名', verb: '中出现任意一项时', chips: ['前端', 'Web', 'Node'], help: '岗位名排除或包含在集合中，模糊匹配。' },
+      { k: 'b', label: '工作内容', verb: '中出现任意一项时', chips: ['外包', '上门', '销售'], help: '会自动检测上文(不是,不,无需)、下文(系统,工具)。' },
+      { k: 'c', label: 'HR 职位', verb: '精确等于其中一项时', chips: ['经理', '主管', '招聘专员'], help: 'HR职位一定包含/排除在集合中，精确匹配。' },
+      { k: 'd', label: '薪资范围', verb: '需落在', chips: ['20K – 35K', '宽松匹配'], help: '投递工作的薪资范围，宽松即有重叠即匹配。', noMode: true },
+      { k: 'e', label: '活跃度', verb: '过滤掉', chips: ['7 日未活跃'], help: '自动过滤最近未活跃的 Boss 发布的工作。', noMode: true },
+    ];
+    const rules = ruleDefs.map(r => {
+      const on = s.ruleOn[r.k];
+      const inc = s.ruleInc[r.k];
+      return {
+        ...r, on,
+        bg: on ? 'var(--surf2)' : 'transparent',
+        fg: on ? 'var(--fg)' : 'var(--fg3)',
+        mode: inc ? '包含' : '排除',
+        modeC: inc ? 'var(--ok)' : 'var(--err)',
+        modeShow: r.noMode ? 'none' : 'inline-block',
+        toggle: () => this.flipIn('ruleOn', r.k),
+        flip: () => this.flipIn('ruleInc', r.k),
+      };
+    });
+
+    const secDefs = [
+      { k: 'greet', label: '招呼语', en: 'GREETING', hint: '自定义 / 变量模板', fields: [
+        { label: '自定义招呼语', value: '您好，我对这个岗位很感兴趣', unit: '文本', help: 'BOSS 默认招呼语之后追加发送' },
+        { label: '发送延迟', value: '5', unit: '秒', help: '发送前留出修改时间' }] },
+      { k: 'delay', label: '延迟节流', en: 'THROTTLE', hint: '降低风控风险', fields: [
+        { label: '投递开始', value: '3', unit: '秒', help: '点击投递按钮后等待' },
+        { label: '投递间隔', value: '5', unit: '秒', help: '每个投递之间的间隔，太快易风控' },
+        { label: '投递翻页', value: '60', unit: '秒', help: '翻到下一页后等待' },
+        { label: '每批投递数量', value: '120', unit: '个', help: '达到后自动暂停，最大 155' }] },
+      { k: 'look', label: '外观', en: 'APPEARANCE', hint: '面板位置与聊天框', fields: [
+        { label: '内容偏移', value: '25', unit: '%', help: '面板与页面主体的横向让位' },
+        { label: '聊天框宽度', value: '420', unit: 'px', help: '对话抽屉宽度 200 – 1500' }] },
+      { k: 'amap', label: '通勤距离', en: 'AMAP', hint: '需自备高德 Key', fields: [
+        { label: '起点经纬度', value: '120.0213,30.2874', unit: 'LNG,LAT', help: '可输入完整地址自动解析' },
+        { label: '驾车时间上限', value: '45', unit: '分钟', help: '为 0 则禁用，速度优先策略' },
+        { label: '直线距离上限', value: '18', unit: 'km', help: '为 0 则禁用' },
+        { label: '步行时间上限', value: '0', unit: '分钟', help: '为 0 则禁用' }] },
+    ];
+    const sections = secDefs.map(d => ({
+      ...d, open: s.sec[d.k], deg: s.sec[d.k] ? '45deg' : '-45deg',
+      go: () => this.flipIn('sec', d.k),
+    }));
+
+    const models = [
+      { ini: 'GPT', name: 'gpt-4o-mini', url: 'https://api.openai.com/v1', state: '已连接', c: 'var(--ok)', soft: 'var(--okSoft)' },
+      { ini: 'DS', name: 'deepseek-chat', url: 'https://api.deepseek.com/v1', state: '未测试', c: 'var(--fg3)', soft: 'var(--surf3)' },
+    ];
+
+    const capDefs = [
+      { k: 'g', label: 'AI 招呼语', dot: 'var(--acc)', model: 'gpt-4o-mini', meta: '平均 1.2s · 90 字以内',
+        desc: '根据岗位信息和你的背景生成一条可直接发送的开场白，启用后会替代自定义招呼语。',
+        prompt: '## 角色\n你是 [求职者姓名] 的 Boss 直聘开场白助手，需要根据岗位信息生成一条可直接发送给 HR/BOSS 的中文招呼语。\n\n## 生成要求\n- 只输出一条招呼语，不要标题、解释或 Markdown。\n- 长度控制在 50 到 90 个中文字符。' },
+      { k: 'f', label: 'AI 岗位过滤', dot: 'var(--ai)', model: 'gpt-4o-mini', meta: '最低投递分 10',
+        desc: '按岗位详情与个人背景输出加分 / 扣分 JSON，低于阈值的岗位自动跳过。',
+        prompt: '## 评分规则\n- 强匹配加 25 分：岗位明确对应 [目标岗位方向]。\n- 重大不匹配扣 25 分：岗位属于 [不想投递的岗位类型]。\n返回 { negative: [], positive: [] } 的 JSON 字符串。' },
+      { k: 'r', label: 'AI 后续回复', dot: 'var(--info)', model: '未选择', meta: '需先启用招呼语',
+        desc: '结合岗位信息和完整聊天上下文生成可编辑的回复草稿，确认后再发送给 HR。',
+        prompt: '回复语言必须跟随 HR/BOSS 最近一条消息的主要语言。默认 1 到 3 句，语气真诚、稳重、不过度自夸。' },
+    ];
+    const caps = capDefs.map(c => ({
+      ...c, on: s.capOn[c.k],
+      border: s.capOn[c.k] ? 'var(--line2)' : 'var(--line)',
+      toggle: () => this.flipIn('capOn', c.k),
+    }));
+
+    const logDefs = [
+      { id: 'l1', time: '11:24:07', title: '高级前端工程师(Web)', state: '成功', c: 'var(--ok)', soft: 'var(--okSoft)', msg: 'AI 评分 34 ≥ 10，已投递并发送招呼语' },
+      { id: 'l2', time: '11:23:55', title: 'Node.js 服务端开发', state: '已跳过', c: 'var(--acc)', soft: 'var(--accSoft)', msg: '相同 HR 过滤：该 HR 已在 08-04 沟通过' },
+      { id: 'l3', time: '11:23:41', title: '前端开发工程师', state: '成功', c: 'var(--ok)', soft: 'var(--okSoft)', msg: 'AI 评分 62 ≥ 10，已投递并发送招呼语' },
+      { id: 'l4', time: '11:23:30', title: 'Web 前端(社招)', state: '失败', c: 'var(--err)', soft: 'var(--errSoft)', msg: '岗位详情等待超时（8000ms），已重试 1/3' },
+      { id: 'l5', time: '11:23:12', title: '全栈工程师', state: '已跳过', c: 'var(--acc)', soft: 'var(--accSoft)', msg: 'AI 评分 -6 < 10：岗位偏算法研究，扣分 25' },
+      { id: 'l6', time: '11:22:58', title: '批次开始', state: '信息', c: 'var(--info)', soft: 'var(--infoSoft)', msg: '本批上限 120，动作间隔 5000ms，缓存已启用' },
+    ];
+    const logs = logDefs.map(l => ({
+      ...l, open: s.openLog === l.id, deg: s.openLog === l.id ? '-135deg' : '45deg',
+      go: () => this.set('openLog', s.openLog === l.id ? '' : l.id),
+      salary: '25-40K·15薪', company: '某某网络科技', addr: '上海市徐汇区漕河泾开发区',
+      full: '2026-08-06 ' + l.time, tokens: '1,284 tok',
+      ai: '{\n  "positive": [\n    { "reason": "岗位要求 Vue 3 + 工程化，匹配项目 A 的组件库与构建优化经验", "score": 25 },\n    { "reason": "接受 3-5 年经验，与当前年限吻合", "score": 10 }\n  ],\n  "negative": [\n    { "reason": "要求有大促全链路压测经验，简历中无直接证据", "score": 8 }\n  ]\n}',
+    }));
+    const filterDefs = [['全部', 48], ['成功', 21], ['已跳过', 19], ['失败', 5], ['信息', 3]];
+    const logFilters = filterDefs.map(([label, n]) => ({ label, n, active: s.logFilter === label, go: () => this.set('logFilter', label) }));
+
+    const convos = [
+      { name: '陈女士 · HR', active: true, dot: 'inline-block' },
+      { name: '刘先生 · 技术负责人', active: false, dot: 'none' },
+      { name: '王女士 · 招聘专员', active: false, dot: 'inline-block' },
+    ];
+    const msgs = [
+      { who: '我', t: '11:24', text: '您好，我对这个前端岗位很感兴趣，方便沟通一下吗？', align: 'flex-end', bg: 'var(--accSoft)', fg: 'var(--fg)', bd: 'var(--acc)', radius: '10px 10px 3px 10px' },
+      { who: 'HR', t: '11:31', text: '你好，看到你简历了。方便说下你最近一个项目主要负责什么吗？', align: 'flex-start', bg: 'var(--surf2)', fg: 'var(--fg)', bd: 'var(--line)', radius: '10px 10px 10px 3px' },
+      { who: '我', t: '11:33', text: '最近在做一个营销活动中台，我负责整个前端架构和组件库，日活大概 30 万。', align: 'flex-end', bg: 'var(--accSoft)', fg: 'var(--fg)', bd: 'var(--acc)', radius: '10px 10px 3px 10px' },
+      { who: 'HR', t: '11:40', text: '不错。那你对我们这边偏 B 端的工程化方向感兴趣吗？团队目前 8 个前端。', align: 'flex-start', bg: 'var(--surf2)', fg: 'var(--fg)', bd: 'var(--line)', radius: '10px 10px 10px 3px' },
+    ];
+    const patterns = [0, 1, 2, 3, 7, 11, 15, 14, 13, 12, 8, 4, 5, 6, 10, 9];
+    const on = patterns[s.dotStep];
+    const dots = Array.from({ length: 16 }, (_, i) => ({ o: i === on ? '1' : '.2' }));
+    const thinking = ['Searching…', 'Reading…', 'Analyzing…', 'Thinking…'][s.thinkI];
+
+    const steps = [
+      { n: 1, t: '确认场景', d: '仅在自己的账号和允许的范围内使用自动化功能，理解自动投递与自动沟通的风控风险。' },
+      { n: 2, t: '检查配置', d: '先设置筛选规则，再确认自动投递和招呼语开关，保存后确认显示「当前配置已保存」。' },
+      { n: 3, t: '小批试运行', d: '从少量岗位开始，随时查看停止原因与日志，确认结果符合预期后再放大批次。' },
+    ];
+    const diag = [
+      { label: '内容脚本已注入', state: '正常', c: 'var(--ok)' },
+      { label: '本地配置已加载', state: '正常', c: 'var(--ok)' },
+      { label: 'AI 模型连接', state: '1 / 2 已验证', c: 'var(--acc)' },
+      { label: '高德地图 Key', state: '未配置', c: 'var(--fg3)' },
+    ];
+    const trouble = [
+      '确认当前页面是 BOSS 直聘的岗位推荐或搜索列表页。',
+      '刷新岗位页，让刚安装或更新的扩展重新注入。',
+      '若提示配置加载失败，请在主界面点击「重新加载」，不要直接开始投递。',
+    ];
+
+    const palette = [
+      { n: '--bg2', v: 'var(--bg2)', role: '页面底' }, { n: '--surf', v: 'var(--surf)', role: '面板' },
+      { n: '--surf2', v: 'var(--surf2)', role: '卡片' }, { n: '--acc', v: 'var(--acc)', role: '主动作' },
+      { n: '--ok', v: 'var(--ok)', role: '成功' }, { n: '--err', v: 'var(--err)', role: '失败' },
+      { n: '--info', v: 'var(--info)', role: '请求中' }, { n: '--ai', v: 'var(--ai)', role: 'AI' },
+      { n: '--fg', v: 'var(--fg)', role: '正文' }, { n: '--fg2', v: 'var(--fg2)', role: '次要' },
+      { n: '--fg3', v: 'var(--fg3)', role: '弱化' }, { n: '--line', v: 'var(--line)', role: '描边' },
+    ];
+    const btnRows = [
+      { name: '主动作', label: '开始', bg: 'var(--acc)', fg: 'var(--accInk)', bd: 'var(--acc)', hbg: 'var(--acc2)', hfg: 'var(--accInk)', hbd: 'var(--acc2)' },
+      { name: '次动作', label: '重载', bg: 'transparent', fg: 'var(--fg2)', bd: 'var(--line2)', hbg: 'var(--surf3)', hfg: 'var(--fg)', hbd: 'var(--fg3)' },
+      { name: '柔和强调', label: '测试', bg: 'var(--accSoft)', fg: 'var(--acc)', bd: 'transparent', hbg: 'var(--acc)', hfg: 'var(--accInk)', hbd: 'var(--acc)' },
+      { name: '破坏性', label: '清空', bg: 'transparent', fg: 'var(--err)', bd: 'var(--err)', hbg: 'var(--errSoft)', hfg: 'var(--err)', hbd: 'var(--err)' },
+    ];
+    const tokens = [
+      { label: '待处理 PENDING', c: 'var(--fg3)', soft: 'var(--surf3)' },
+      { label: '等待中 WAIT', c: 'var(--fg2)', soft: 'var(--surf3)' },
+      { label: '处理中 RUNNING', c: 'var(--info)', soft: 'var(--infoSoft)' },
+      { label: '请求中 REQUEST', c: 'var(--info)', soft: 'var(--infoSoft)' },
+      { label: 'AI 处理中 AI', c: 'var(--ai)', soft: 'var(--aiSoft)' },
+      { label: '成功 SUCCESS', c: 'var(--ok)', soft: 'var(--okSoft)' },
+      { label: '已跳过 WARN', c: 'var(--acc)', soft: 'var(--accSoft)' },
+      { label: '失败 ERROR', c: 'var(--err)', soft: 'var(--errSoft)' },
+    ];
+    const notes = [
+      { t: '主题变量映射', d: '把 --acc / --surf / --fg 三组变量写进 assets/main.css 的 @theme，Nuxt UI 的 color=primary 直接指向 --acc，深浅主题只切 html[data-theme]。', f: 'src/assets/main.css · wxt.config.ts' },
+      { t: '运行舱替代顶部信息条', d: 'App.vue 里散落的「本批投递 / 当前页面处理 / 未保存」文本收进一个常驻组件 RunBay.vue，statistics 与 workflow 的 computed 原样复用。', f: 'src/App.vue → components/RunBay.vue' },
+      { t: '规则句子化', d: 'FormItem.vue 的 fieldset 换成一行式 RuleRow.vue，enable / include 两个 v-model 不变，只是把 label 与 InputTags 排成一句话。', f: 'src/components/form/FormItem.vue' },
+      { t: '状态令牌保持单一来源', d: 'jobStatusTokens.ts 继续做唯一状态源，只把 background / foreground 从写死 hex 改为 var(--ok) 等变量，卡片与日志共用。', f: 'src/components/jobStatusTokens.ts' },
+    ];
+
+    return {
+      theme: s.theme, themeLabel: s.theme === 'dark' ? '☀ 浅色' : '☾ 深色',
+      toggleTheme: () => this.set('theme', s.theme === 'dark' ? 'light' : 'dark'),
+      views, isPanel: s.view === 'panel', isOptions: s.view === 'options', isSystem: s.view === 'system',
+      goPanel: () => this.set('view', 'panel'),
+      tabs, isConsole: s.tab === 'console', isRules: s.tab === 'rules', isAi: s.tab === 'ai',
+      isLogs: s.tab === 'logs', isAbout: s.tab === 'about',
+      running: s.running, stopped: s.stopped,
+      liveColor: s.stopped ? 'var(--acc)' : s.running ? 'var(--ok)' : 'var(--fg3)',
+      liveLabel: s.stopped ? 'PAUSED · 已达上限' : s.running ? 'RUNNING · 投递中' : 'IDLE · 待机',
+      runLabel: s.stopped ? '开始下一批' : s.running ? '暂停' : '开始',
+      runBg: s.running ? 'var(--acc2)' : 'var(--acc)',
+      playIcon: s.running ? 'none' : 'block', pauseIcon: s.running ? 'block' : 'none',
+      toggleRun: () => this.setState(st => st.stopped ? { stopped: false, running: true } : { running: !st.running }),
+      reset: () => this.setState({ running: false, stopped: false }),
+      submitted, limit, pct, ticks, stream, stats, periods,
+      periodValue: periodData[s.period].v, periodHelp: periodData[s.period].help, spark,
+      jobs, follow: s.follow,
+      followLabel: s.follow ? '自动跟随中' : '自动跟随已关',
+      followColor: s.follow ? 'var(--acc)' : 'var(--fg3)',
+      followBorder: s.follow ? 'var(--acc)' : 'var(--line)',
+      toggleFollow: () => this.set('follow', !s.follow),
+      helpOn: s.help, toggleHelp: () => this.set('help', !s.help),
+      helpColor: s.help ? 'var(--acc)' : 'var(--fg2)', helpBorder: s.help ? 'var(--acc)' : 'var(--line)',
+      chatOpen: s.chat, openChat: () => this.set('chat', true), closeChat: () => this.set('chat', false),
+      onboard: s.onboard, openOnboard: () => this.set('onboard', true), closeOnboard: () => this.set('onboard', false),
+      rules, addable: ['公司名', '工作地址', '公司规模', '通勤距离', '猎头过滤', '相同公司过滤', '好友过滤(已聊)'],
+      addOpen: s.addOpen, toggleAdd: () => this.set('addOpen', !s.addOpen),
+      sections,
+      dirtyLabel: s.dirty ? '有 3 项未保存的更改' : '当前配置已保存',
+      dirtyColor: s.dirty ? 'var(--acc)' : 'var(--ok)',
+      dirtyBorder: s.dirty ? 'var(--acc)' : 'var(--line)',
+      save: () => this.set('dirty', false),
+      models, caps, logs, logFilters, logCount: 48,
+      convos, msgs, dots, thinking,
+      steps, diag, trouble, palette, btnRows, tokens, notes,
+    };
+  }
+}
+</script>
+</body>
+</html>
