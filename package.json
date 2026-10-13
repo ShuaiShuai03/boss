@@ -5,6 +5,10 @@
   "private": true,
   "description": "Boss直聘助手, 皆在减少投递简历的麻烦, 和提高投递简历的效率,技术栈使用VIte + Vue3 + element-plus",
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0",
+    "bun": ">=1.3.0"
+  },
   "scripts": {
     "dev": "wxt",
     "dev:edge": "wxt -b edge",
