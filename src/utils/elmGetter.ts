@@ -14,13 +14,8 @@ const listeners = new WeakMap()
 
 const elProto = win.Element.prototype
 
-const matches =
-  elProto.matches ||
-  elProto.matchesSelector ||
-  elProto.webkitMatchesSelector ||
-  elProto.mozMatchesSelector ||
-  elProto.oMatchesSelector
-const MutationObs = win.MutationObserver || win.WebkitMutationObserver || win.MozMutationObserver
+const matches = elProto.matches
+const MutationObs = win.MutationObserver
 function addObserver(target, callback) {
   const observer = new MutationObs((mutations) => {
     for (const mutation of mutations) {
