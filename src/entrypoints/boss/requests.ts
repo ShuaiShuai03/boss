@@ -53,29 +53,9 @@ function normalizeRequestBossDataOptions(
 }
 
 function requestSignal(signal?: AbortSignal) {
-  const timeout =
-    typeof AbortSignal.timeout === 'function'
-      ? AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
-      : (() => {
-          const controller = new AbortController()
-          window.setTimeout(
-            () => controller.abort(new DOMException('请求超时', 'TimeoutError')),
-            BOSS_REQUEST_TIMEOUT_MS,
-          )
-          return controller.signal
-        })()
+  const timeout = AbortSignal.timeout(BOSS_REQUEST_TIMEOUT_MS)
   if (!signal) return timeout
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout])
-
-  const controller = new AbortController()
-  const onAbort = () => controller.abort(signal.reason)
-  if (signal.aborted) {
-    onAbort()
-  } else {
-    signal.addEventListener('abort', onAbort, { once: true })
-  }
-  timeout.addEventListener('abort', () => controller.abort(timeout.reason), { once: true })
-  return controller.signal
+  return AbortSignal.any([signal, timeout])
 }
 
 function sleep(ms: number, signal?: AbortSignal) {
