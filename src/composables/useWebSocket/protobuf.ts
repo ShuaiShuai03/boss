@@ -1,7 +1,7 @@
 import { bossPageGateway } from '@/message/pageGateway'
 import { normalizeBossProtocolUserId } from '@/utils/bossIdentity'
 
-import { type BossHelperChatMessageArgs } from './chatBridge'
+import type { BossHelperChatMessageArgs } from './chatBridge'
 import { mqtt } from './mqtt'
 import type { TechwolfChatProtocol } from './type'
 import { AwesomeMessage } from './type'

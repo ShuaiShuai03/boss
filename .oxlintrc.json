@@ -8,6 +8,7 @@
         "allowShortCircuit": true
       }
     ],
-    "typescript/no-implied-eval": "off"
+    "typescript/no-implied-eval": "off",
+    "typescript/no-import-type-side-effects": "error"
   }
 }
