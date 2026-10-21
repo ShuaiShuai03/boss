@@ -39,3 +39,7 @@ logapi.zhipin.*.pem
 .wxt
 
 /temp
+
+# Local design and browser QA artifacts
+.taste-skill/
+.playwright-cli/

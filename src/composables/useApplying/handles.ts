@@ -1,3 +1,5 @@
+import type { JobData } from '@/composables/useHelper'
+import { HelperContext } from '@/composables/useHelper'
 import {
   AI_REPLY_DOM_MESSAGE_EVENT,
   type AiReplyChatEventPayload,
@@ -6,8 +8,6 @@ import {
 } from '@/features/aiReply/types'
 import { counter } from '@/message'
 import { renderTemplate } from '@/utils/ai'
-import type { JobData } from '@/composables/useHelper'
-import { HelperContext } from '@/composables/useHelper'
 
 import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import type { JobStatus, TaskContext, TaskResult, WorkflowData } from './type'
@@ -385,9 +385,11 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
           }
         }
       }
-      return {
-        isSkip: true,
-        reason: `工作地址不包含关键词: ${content}`,
+      if (ctx.helper.conf.formData.jobAddress.include) {
+        return {
+          isSkip: true,
+          reason: `工作地址不包含关键词: ${content}`,
+        }
       }
     }
   })

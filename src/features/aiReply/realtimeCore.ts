@@ -91,6 +91,9 @@ export function normalizeAiReplyProtocolMessages(
 
     const sender = peerFromUser(message.from)
     const recipient = peerFromUser(message.to)
+    // Captured frames are page-controlled input. Reject traffic for another account.
+    if (!sameUser(sender.uid, currentUserId) && !sameUser(recipient.uid, currentUserId)) continue
+    if (!sender.uid || !recipient.uid) continue
     const isSelf = sameUser(sender.uid, currentUserId)
     const peer = isSelf ? recipient : sender
     const peerUid = peer.uid || sender.uid || recipient.uid

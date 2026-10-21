@@ -256,6 +256,7 @@ async function testJob() {
     return
   }
   try {
+    const testModel = helper.chatModel.fork()
     const agentName =
       props.data === 'aiFiltering'
         ? 'filtering'
@@ -269,13 +270,13 @@ async function testJob() {
       prompt: jsonClone(message.value),
     }
     if (
-      !helper.chatModel.createAgent(form, agentName, {
+      !testModel.createAgent(form, agentName, {
         json: props.data === 'aiFiltering',
         schema: props.data === 'aiFiltering' ? filteringOutputSchema : undefined,
       })
     ) {
       toast.add({
-        title: helper.chatModel.lastCreateAgentError || '模型配置不可用',
+        title: testModel.lastCreateAgentError || '模型配置不可用',
         color: 'warning',
       })
       return
@@ -291,7 +292,7 @@ async function testJob() {
           rawData: {} as any,
           state: {},
         }
-        const result = await helper.chatModel.chat(agentName, data)
+        const result = await testModel.chat(agentName, data)
         let content = result.text.trim()
         if (props.data === 'aiFiltering' && content) {
           content =

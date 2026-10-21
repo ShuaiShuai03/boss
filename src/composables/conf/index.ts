@@ -18,11 +18,7 @@ import { TimeoutError, withTimeout } from '@/utils/promise'
 import { defaultFormData } from './info'
 import { migrateFormData } from './migration'
 import { formDataKeyForPreset, preparePresetSwitch } from './preset'
-import {
-  commitAfterPersistence,
-  createConfSaveItems,
-  createConfSavePayload,
-} from './savePayload'
+import { commitAfterPersistence, createConfSaveItems, createConfSavePayload } from './savePayload'
 
 export * from './info'
 
@@ -314,6 +310,7 @@ export const useConf = () => {
         },
         {} as Record<string, any>,
       ),
+      { clone: false },
     )
     logger.debug('formData推荐配置已应用')
     toast.add({
@@ -323,7 +320,7 @@ export const useConf = () => {
   }
 
   function confDelete() {
-    deepmerge(formData, createDefaultFormData())
+    Object.assign(formData, createDefaultFormData())
     logger.debug('formData已清空')
     toast.add({
       title: '配置已恢复默认值，保存后生效',

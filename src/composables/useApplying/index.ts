@@ -7,9 +7,9 @@ import {
   EXTENSION_CONTEXT_INVALIDATED_MESSAGE,
   isExtensionContextInvalidated,
 } from '@/utils/extension'
-import { LimitError, RateLimitError } from './deliverError'
 
 import { HelperContext } from '../useHelper'
+import { LimitError, RateLimitError } from './deliverError'
 import { DependencyMissingError } from './handles'
 import {
   WorkflowLeaseLostError,
@@ -36,17 +36,18 @@ import {
 
 export type { WorkflowStopReason, WorkflowStopReasonCode } from './stopReason'
 
-// 全局缓存管理器实例
-let cacheManager: PipelineCacheManager | null = null
+const cacheManagers = new Map<string, PipelineCacheManager>()
 
-/**
- * 创建缓存实例
- */
-export function getCacheManager(): PipelineCacheManager {
-  if (!cacheManager) {
-    cacheManager = new PipelineCacheManager()
+export function getCacheManager(accountId: string): PipelineCacheManager {
+  if (!accountId) throw new Error('缓存需要已登录账号')
+  let manager = cacheManagers.get(accountId)
+  if (!manager) {
+    manager = new PipelineCacheManager({
+      storageKey: `local:pipeline-cache:${encodeURIComponent(accountId)}`,
+    })
+    cacheManagers.set(accountId, manager)
   }
-  return cacheManager
+  return manager
 }
 
 /**
@@ -58,17 +59,19 @@ export async function cachePipelineResult(
   brandName: string,
   status: JobStatus,
   message: string,
+  accountId: string,
   processorType?: ProcessorType,
 ): Promise<void> {
-  const cacheManager = getCacheManager()
+  const cacheManager = getCacheManager(accountId)
   await cacheManager.setCacheResult(key, jobName, brandName, status, message, processorType)
 }
 
 /**
  * 检查职位是否有有效缓存
  */
-export function checkJobCache(key: string): PipelineCacheItem | null {
-  const cacheManager = getCacheManager()
+export function checkJobCache(key: string, accountId: string): PipelineCacheItem | null {
+  if (!accountId) return null
+  const cacheManager = getCacheManager(accountId)
 
   if (cacheManager.isValidCache(key)) {
     const cached = cacheManager.getCachedResult(key)
@@ -216,6 +219,9 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
 
   const hydrateCheckpoint = (checkpoint: WorkflowRunCheckpoint | null) => {
     if (!checkpoint || checkpoint.accountId !== helper.uid) return
+    // A different tab can resume a paused run. A settled local pause must not
+    // override that new persisted intent; an in-flight manual stop still wins.
+    if (checkpoint.intent === 'running' && !executionPromise) manualPauseRequested = false
     batchLimit.value = checkpoint.batchLimit
     batchSubmitted.value = checkpoint.batchSubmitted
     for (const [jobKey, result] of Object.entries(checkpoint.results)) {
@@ -501,6 +507,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           data.jobData.brand.name,
           finalResult.status,
           finalResult.msg ?? finalResult.reason ?? '已处理',
+          helper.uid,
         )
       }
       return { delivered }
@@ -748,7 +755,8 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           runCoordinator.claim.runId = createExecutionId()
         }
         runCoordinator.claim.batchLimit =
-          helper.conf.formData.deliveryLimit.value || helper.conf.defaultFormData.deliveryLimit.value
+          helper.conf.formData.deliveryLimit.value ||
+          helper.conf.defaultFormData.deliveryLimit.value
         const acquired = await runCoordinator.acquire(userInitiated)
         hydrateCheckpoint(runCoordinator.checkpoint)
         if (userInitiated) manualPauseRequested = false
@@ -803,6 +811,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         recoveryMessage.value = null
         return
       }
+      manualPauseRequested = false
       runCoordinator.claim.accountId = helper.uid
 
       const ownsLease = checkpoint.ownerId === runtimeId

@@ -111,7 +111,7 @@ const activity = computed(() => {
           class="card-score"
           :title="`AI 匹配分 ${scoreRing.value}`"
           :style="{
-            background: `conic-gradient(${scoreRing.color} ${scoreRing.deg}, var(--cr-line) 0)`,
+            border: `2px solid ${scoreRing.color}`,
           }"
         >
           <span :style="{ color: scoreRing.color }">{{ scoreRing.value }}</span>

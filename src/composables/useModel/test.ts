@@ -15,6 +15,8 @@ import {
 } from 'ai'
 import type { ShallowReactive } from 'vue'
 
+import { assertGroundedScreening, evidenceInstruction } from '@/features/ai/workspace'
+import { counter } from '@/message'
 import type { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
 import { normalizeExtensionContextError } from '@/utils/extension'
@@ -22,6 +24,7 @@ import { sanitizeErrorMessage } from '@/utils/sensitive'
 
 import type { ModelConf } from '.'
 import type { WorkflowData } from '../useApplying/type'
+import { parseFiltering } from '../useApplying/utils'
 import { HelperContext } from '../useHelper'
 import { createAgentOutput } from './agent-output'
 import { getEffectiveAiTimeoutMs } from './common'
@@ -153,7 +156,15 @@ export class ChatModel {
   generateId: { [key in MessageRole]: () => string }
   lastCreateAgentError = ''
 
-  constructor(public ctx: HelperContext<any, any, any>) {
+  /** Prompt previews own their agents and history; production state is never shared. */
+  fork() {
+    return new ChatModel(this.ctx, true)
+  }
+
+  constructor(
+    public ctx: HelperContext<any, any, any>,
+    private preview = false,
+  ) {
     this.generateId = role.reduce(
       (acc, agentName) => {
         acc[agentName] = createIdGenerator({
@@ -268,7 +279,20 @@ ${data.jobData.jobDescription}`,
     const [agent, modelConf, model] = _agent
 
     const timeout = getEffectiveAiTimeoutMs(modelConf.data?.other?.timeout)
-    const messages = renderMessages(model, data)
+    const account = this.ctx.uid
+    if (!account) throw new Error('AI 请求需要已识别的账号')
+    const workspace = await counter.reserveAiRequest(account)
+    if (account !== this.ctx.uid) throw new Error('账户已切换，请重新发起 AI 请求')
+    const messages: ModelMessage[] = [
+      {
+        role: 'system',
+        content: evidenceInstruction(
+          workspace.profiles.at(-1),
+          workspace.conversationFacts[data.jobData.key],
+        ),
+      },
+      ...renderMessages(model, data),
+    ]
     const prompt = formatPrompt(messages)
     const state = this.ensureJobState(data)
     // msgs.pushMessage({
@@ -311,7 +335,13 @@ ${data.jobData.jobDescription}`,
 
     try {
       const result = await agent.generate({ timeout, messages })
+      if (this.ctx.uid !== account) throw new Error('账号已切换，已丢弃 AI 结果')
       const text = result.text
+      if (agentName === 'filtering') {
+        const parsed = parseFiltering(text, { finishReason: result.finishReason })
+        if (!parsed.res) throw new Error(parsed.message)
+        assertGroundedScreening(JSON.stringify(parsed.res), JSON.stringify(data.jobData))
+      }
       const reasoning = result.reasoningText ?? ''
       msg.parts = [
         ...(reasoning
@@ -337,7 +367,11 @@ ${data.jobData.jobDescription}`,
         },
       })
       state.status = 'ready'
-      logger.debug('Chat finished', result)
+      logger.debug('Chat finished', {
+        finishReason: result.finishReason,
+        usage: result.usage,
+        preview: this.preview,
+      })
       return {
         text,
         prompt,

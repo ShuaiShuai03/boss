@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -694,7 +694,7 @@ try {
       ...commonConfig,
       deliveryLimit: { value: 9 },
     },
-    'web-geek-job-Today': {
+    'web-geek-job-Today::account::fixture-user': {
       date: localDateKey(),
       success: 4,
       total: 7,
@@ -702,7 +702,7 @@ try {
       activityFilter: 2,
       tasks: {},
     },
-    'web-geek-job-Statistics': [],
+    'web-geek-job-Statistics::account::fixture-user': [],
   })
 
   const page = await context.newPage()
@@ -729,6 +729,31 @@ try {
     await page.evaluate(() => document.querySelector('.page-job-wrapper').__vue__.jobList.length),
     1,
   )
+  if (process.env.BOSS_UI_CAPTURE) {
+    const directory = process.env.BOSS_UI_CAPTURE
+    await mkdir(directory, { recursive: true })
+    const measurements = []
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      for (const tab of ['控制台', '规则', 'AI', '日志', '关于']) {
+        await host.getByRole('tab', { name: tab }).click()
+        await page.waitForTimeout(400)
+        await page.screenshot({ path: `${directory}/${width}-${tab}.png`, fullPage: true })
+        measurements.push(
+          await host.locator('.cr-shell').evaluate((root) => ({
+            title: root.querySelector('h1')?.textContent?.trim(),
+            viewport: innerWidth,
+            width: root.getBoundingClientRect().width,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            tab: root.querySelector('[role=tab][aria-selected=true]')?.textContent?.trim(),
+          })),
+        )
+      }
+    }
+    await writeFile(`${directory}/measurements.json`, JSON.stringify(measurements, null, 2))
+    await host.getByRole('tab', { name: '控制台' }).click()
+    await page.setViewportSize({ width: 1024, height: 900 })
+  }
   const detailsButton = host.locator('.card-details-toggle').first()
   await detailsButton.waitFor()
   assert.equal((await detailsButton.innerText()).trim(), '展开职位详情')
@@ -891,7 +916,7 @@ try {
   const today = await waitForStorage(
     worker,
     'local',
-    'web-geek-job-Today',
+    'web-geek-job-Today::account::fixture-user',
     (value) => value?.total === 8,
   )
   assert.equal(today.total, 8)
@@ -939,7 +964,7 @@ try {
     await waitForStorage(
       worker,
       'session',
-      'boss-helper-ai-reply-drafts',
+      'boss-helper-ai-reply-drafts::account::fixture-user',
       (value) => value?.['fixture-conversation']?.text === '保留的测试草稿',
     )
   } catch (error) {
@@ -1035,7 +1060,7 @@ try {
         messageSending: 0,
       },
     },
-    'web-geek-job-Today': {
+    'web-geek-job-Today::account::fixture-user': {
       date: localDateKey(),
       success: 0,
       total: 0,
@@ -1043,14 +1068,14 @@ try {
       activityFilter: 0,
       tasks: {},
     },
-    'web-geek-job-Statistics': [],
+    'web-geek-job-Statistics::account::fixture-user': [],
   })
 
   const assertLifecycleStatistics = async (label) => {
     const statistics = await waitForStorage(
       worker,
       'local',
-      'web-geek-job-Today',
+      'web-geek-job-Today::account::fixture-user',
       (value) => value?.total === 1 && value?.success === 1,
       10_000,
     )

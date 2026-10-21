@@ -39,6 +39,7 @@ export interface AiReplyChatEventPayload {
 }
 
 export interface AiReplySendTarget {
+  jobKey: string
   conversationId: string
   text: string
   toUid: string

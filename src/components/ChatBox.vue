@@ -21,7 +21,10 @@ import {
   type StoredReplyConversation,
   type StoredReplyDraft,
 } from '@/features/aiReply/draftStorage'
-import { sanitizeAiReplyChatEventPayload } from '@/features/aiReply/eventValidation'
+import {
+  messageBelongsToAccount,
+  sanitizeAiReplyChatEventPayload,
+} from '@/features/aiReply/eventValidation'
 import {
   AI_REPLY_DOM_MESSAGE_EVENT,
   type AiReplyConversation,
@@ -60,6 +63,9 @@ const conversations = reactive(new Map<string, SidebarConversation>())
 const conversationIdsByJob = reactive(new Map<string, string>())
 const drafts = reactive(new Map<string, DraftState>())
 const restoredDrafts = ref<Record<string, StoredReplyDraft>>({})
+let sessionAccount = ''
+let sessionGeneration = 0
+let restoringSession = true
 
 const jobs = computed(() =>
   helper.chatModel.jobs.value.map((key) => ({
@@ -98,7 +104,8 @@ function ensureDraft(conversationId: string) {
 }
 
 async function persistDrafts() {
-  await counter.writeAiReplySession({ drafts: serializeReplyDrafts(drafts) })
+  if (restoringSession || !sessionAccount || sessionAccount !== helper.uid) return
+  await counter.writeAiReplySession({ drafts: serializeReplyDrafts(drafts) }, sessionAccount)
 }
 
 async function persistDraftsSafely(showWarning = false) {
@@ -118,6 +125,7 @@ async function persistDraftsSafely(showWarning = false) {
   }
 }
 async function persistConversations() {
+  if (restoringSession || !sessionAccount || sessionAccount !== helper.uid) return
   const stored: Array<readonly [string, StoredReplyConversation]> = Array.from(
     conversations.entries(),
     ([conversationId, conversation]) => [
@@ -131,9 +139,12 @@ async function persistConversations() {
       },
     ],
   )
-  await counter.writeAiReplySession({
-    conversations: serializeReplyConversations(stored),
-  })
+  await counter.writeAiReplySession(
+    {
+      conversations: serializeReplyConversations(stored),
+    },
+    sessionAccount,
+  )
 }
 
 const stopConversationPersistence = watchThrottled(
@@ -358,7 +369,9 @@ function handleAiReplyChatEvent(event: Event) {
   if (!payload) {
     return
   }
-  payload.messages.forEach(upsertRealtimeMessage)
+  payload.messages
+    .filter((message) => messageBelongsToAccount(message, helper.protocolUserId))
+    .forEach(upsertRealtimeMessage)
 }
 
 async function generateReplyDraft(conversation = selectedConversation.value) {
@@ -394,12 +407,14 @@ async function generateReplyDraft(conversation = selectedConversation.value) {
     return
   }
 
+  const generation = sessionGeneration
   draft.status = 'generating'
   draft.error = undefined
   draft.updatedAt = Date.now()
   try {
     data.state.aiReplyInput = context
     const result = await helper.chatModel.chat('reply', data)
+    if (generation !== sessionGeneration) return
     data.state.aiReplyQ = result.prompt
     data.state.aiReplyR = result.reasoning_content
     data.state.aiReplyA = result.text.trim()
@@ -456,17 +471,20 @@ async function sendDraft() {
     return
   }
 
+  const generation = sessionGeneration
   const revisionAtSend = draft.revision
   const pendingAtSend = draft.pendingIncomingId
   sendLoading.value = true
   try {
     await helper.sendChatMessage({
+      jobKey: conversation.jobKey,
       conversationId: conversation.id,
       text,
       toUid: conversation.peer.uid,
       toName: conversation.peer.name,
       friendSource: conversation.peer.source,
     })
+    if (generation !== sessionGeneration) return
     const message: AiReplyRealtimeMessage = {
       id: `draft:${Date.now()}`,
       conversationId: conversation.id,
@@ -626,10 +644,19 @@ watch(
   { immediate: true },
 )
 
-onMounted(async () => {
-  document.addEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
+async function restoreAccountSession(accountId: string) {
+  const generation = ++sessionGeneration
+  restoringSession = true
+  sessionAccount = accountId
+  conversations.clear()
+  conversationIdsByJob.clear()
+  drafts.clear()
+  restoredDrafts.value = {}
+  pendingUnboundMessages.retry(() => true)
+  if (!accountId) return
   try {
-    const storedSession = await counter.readAiReplySession()
+    const storedSession = await counter.readAiReplySession(accountId)
+    if (generation !== sessionGeneration || accountId !== helper.uid) return
     const storedConversations = sanitizeStoredReplyConversations(storedSession.conversations)
     for (const conversation of Object.values(storedConversations)) {
       conversations.set(conversation.id, {
@@ -654,11 +681,25 @@ onMounted(async () => {
     void persistDraftsSafely()
   } catch (error) {
     logger.warn('AI 回复草稿恢复失败', error)
+  } finally {
+    if (generation === sessionGeneration) restoringSession = false
   }
+}
+
+const stopAccountWatch = watch(
+  () => helper.uid,
+  (accountId) => {
+    void restoreAccountSession(accountId)
+  },
+  { immediate: true, flush: 'sync' },
+)
+onMounted(() => {
+  document.addEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
 })
 
 onUnmounted(() => {
   document.removeEventListener(AI_REPLY_DOM_MESSAGE_EVENT, handleAiReplyChatEvent)
+  stopAccountWatch()
   stopDraftPersistence()
   stopConversationPersistence()
   void persistConversations().catch((error) => logger.warn('聊天会话保存失败', error))

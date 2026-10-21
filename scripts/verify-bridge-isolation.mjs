@@ -233,9 +233,13 @@ try {
   assert.equal(sessionState['boss-helper-ai-reply-drafts'].private.text, fixtureDraft)
   assert.deepEqual(
     Object.keys(sessionState).sort(),
-    ['boss-helper-ai-reply-conversations', 'boss-helper-ai-reply-drafts'].filter(
-      (key) => key in sessionState,
-    ),
+    [
+      'boss-helper-ai-reply-conversations::account::fixture-user',
+      'boss-helper-ai-reply-drafts::account::fixture-user',
+      'boss-helper-ai-reply-drafts',
+    ]
+      .filter((key) => key in sessionState)
+      .sort(),
   )
   assert.equal(JSON.stringify(localState).includes('attacker'), false)
   assert.equal(JSON.stringify(sessionState).includes('attacker'), false)

@@ -1,14 +1,13 @@
 import { computed, ref, toRaw } from 'vue'
 
+import type { InitializationStatus } from '@/composables/statisticsStore'
 import { counter } from '@/message'
 import { logger } from '@/utils/logger'
-import type { InitializationStatus } from '@/composables/statisticsStore'
 
 import type { OpenaiLLMConf } from './openai'
 import { openai } from './openai'
 import { normalizeOpenaiConfig } from './openai-utils'
 import { mutateAndPersistModelData, normalizeStoredModelData } from './persistence'
-import './test'
 
 const toast = useToast()
 export const confModelKey = 'local:conf-model'
@@ -82,7 +81,11 @@ export const useModel = () => {
     initializationPromise = (async () => {
       try {
         const localData = await counter.storageGet<unknown>(confModelKey, null)
-        const localModels = normalizeStoredModelData(localData, '本地 AI 模型配置', normalizeModelConf)
+        const localModels = normalizeStoredModelData(
+          localData,
+          '本地 AI 模型配置',
+          normalizeModelConf,
+        )
         if (localModels) {
           await counter.storageRm(legacyConfModelKey)
           logger.debug('ai模型数据', localModels.map(summarizeModelConfForLog))
@@ -151,10 +154,7 @@ export const useModel = () => {
     }
   }
 
-  async function mutateAndSave(
-    mutation: (models: ModelConf[]) => void,
-    successTitle: string,
-  ) {
+  async function mutateAndSave(mutation: (models: ModelConf[]) => void, successTitle: string) {
     isSaving.value = true
     try {
       await mutateAndPersistModelData({

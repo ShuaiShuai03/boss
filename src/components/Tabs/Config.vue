@@ -569,7 +569,7 @@ const toggleRules = computed(() => {
                 color="warning"
                 variant="outline"
                 size="xs"
-                @click="() => getCacheManager().clearCache()"
+                @click="() => getCacheManager(helper.uid).clearCache()"
               >
                 清空缓存
               </UButton>

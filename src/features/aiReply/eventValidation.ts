@@ -71,3 +71,11 @@ export function sanitizeAiReplyChatEventPayload(value: unknown): AiReplyChatEven
 
   return { url: payload.url, user: payload.user as AiReplyPeer, messages }
 }
+
+export function messageBelongsToAccount(message: AiReplyRealtimeMessage, userId: string): boolean {
+  if (!userId) return false
+  const outgoing = message.direction === 'outgoing'
+  return outgoing
+    ? message.sender.uid === userId && message.recipient.uid === message.peer.uid
+    : message.recipient.uid === userId && message.sender.uid === message.peer.uid
+}
