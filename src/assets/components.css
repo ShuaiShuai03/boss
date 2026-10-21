@@ -1951,3 +1951,8 @@
   background: var(--cr-surf3);
   color: var(--cr-fg);
 }
+@media (max-width: 900px) {
+  .cr-shell .console-cycle {
+    grid-column: 1 / -1;
+  }
+}
