@@ -13,21 +13,21 @@
 
 :root,
 #app-root {
-  --cr-bg: #0d1920;
-  --cr-bg2: #081217;
-  --cr-surf: #12212b;
-  --cr-surf2: #172c38;
-  --cr-surf3: #1e3949;
-  --cr-line: #26414f;
-  --cr-line2: #365667;
-  --cr-fg: #e8f0f3;
-  --cr-fg2: #9fb6c1;
+  --cr-bg: #000000;
+  --cr-bg2: #000000;
+  --cr-surf: #111111;
+  --cr-surf2: #181818;
+  --cr-surf3: #2a2a2a;
+  --cr-line: #303030;
+  --cr-line2: #444444;
+  --cr-fg: #ffffff;
+  --cr-fg2: #b4b4b4;
   /* 稿子里的 #66808D 在 --surf2 上只有 3.46:1。眉题、说明文字都用这一档，
    * 所以提亮到在 surf / surf2 / surf3 三种底色上都过 4.5:1。 */
-  --cr-fg3: #8da2ac;
-  --cr-acc: #f5a524;
-  --cr-acc2: #ffc15e;
-  --cr-acc-ink: #12212b;
+  --cr-fg3: #a3a3a3;
+  --cr-acc: #ffffff;
+  --cr-acc2: #dedede;
+  --cr-acc-ink: #111111;
   --cr-acc-soft: rgb(245 165 36 / 10%);
   --cr-ok: #4fd98b;
   --cr-ok-soft: rgb(79 217 139 / 10%);
@@ -35,7 +35,7 @@
   --cr-err-soft: rgb(255 107 90 / 10%);
   --cr-info: #5fb8ff;
   --cr-info-soft: rgb(95 184 255 / 10%);
-  --cr-ai: #b98bff;
+  --cr-ai: #6ccdb6;
   --cr-ai-soft: rgb(185 139 255 / 10%);
 
   /* “柔和底 + 同色文字”的状态标记里，文字用 -on 变量。
@@ -55,23 +55,23 @@
   --cr-zh:
     'Noto Sans SC', 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
     'Microsoft YaHei', sans-serif;
-  --cr-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --cr-mono: var(--cr-zh);
 }
 
 [data-cr-theme='light'] {
-  --cr-bg: #e4e9e8;
-  --cr-bg2: #d5dcdb;
+  --cr-bg: #f0f1ef;
+  --cr-bg2: #e7e9e6;
   --cr-surf: #fff;
   --cr-surf2: #f3f6f6;
   --cr-surf3: #e7ecec;
   --cr-line: #d3dbdb;
   --cr-line2: #b4c1c2;
-  --cr-fg: #12212b;
+  --cr-fg: #111111;
   --cr-fg2: #4e626c;
   --cr-fg3: #5b6c76;
   /* 稿子里的浅色琥珀 #B86E06 在白底上只有 3.98:1，改用稿子自己的 --acc2 档。 */
-  --cr-acc: #94570a;
-  --cr-acc2: #7a480f;
+  --cr-acc: #232723;
+  --cr-acc2: #232723;
   --cr-acc-ink: #fff;
   --cr-acc-soft: rgb(184 110 6 / 12%);
   --cr-ok: #17794c;
@@ -80,14 +80,14 @@
   --cr-err-soft: rgb(188 51 37 / 12%);
   --cr-info: #15669f;
   --cr-info-soft: rgb(21 102 159 / 12%);
-  --cr-ai: #6c3fc4;
+  --cr-ai: #187663;
   --cr-ai-soft: rgb(108 63 196 / 12%);
 
-  --cr-acc-on: #7a480f;
+  --cr-acc-on: #232723;
   --cr-ok-on: #10603c;
   --cr-err-on: #96271b;
   --cr-info-on: #124f7c;
-  --cr-ai-on: #55309a;
+  --cr-ai-on: #165e50;
   --cr-mute-on: var(--cr-fg2);
 }
 
@@ -136,12 +136,12 @@
   --ui-color-primary-50: #fff8ec;
   --ui-color-primary-100: #ffeccb;
   --ui-color-primary-200: #ffd894;
-  --ui-color-primary-300: #ffc15e;
-  --ui-color-primary-400: #f5a524;
+  --ui-color-primary-300: #dedede;
+  --ui-color-primary-400: #ffffff;
   --ui-color-primary-500: #e08f0f;
   --ui-color-primary-600: #b86e06;
-  --ui-color-primary-700: #94570a;
-  --ui-color-primary-800: #7a480f;
+  --ui-color-primary-700: #232723;
+  --ui-color-primary-800: #232723;
   --ui-color-primary-900: #663c12;
   --ui-color-primary-950: #3b2007;
 
@@ -149,10 +149,10 @@
   --ui-color-secondary-100: #ede4ff;
   --ui-color-secondary-200: #dcccff;
   --ui-color-secondary-300: #c7a9ff;
-  --ui-color-secondary-400: #b98bff;
+  --ui-color-secondary-400: #6ccdb6;
   --ui-color-secondary-500: #a066f5;
   --ui-color-secondary-600: #8b47e3;
-  --ui-color-secondary-700: #6c3fc4;
+  --ui-color-secondary-700: #187663;
   --ui-color-secondary-800: #5c36a2;
   --ui-color-secondary-900: #4c2f84;
   --ui-color-secondary-950: #2f1a59;
@@ -184,12 +184,12 @@
   --ui-color-warning-50: #fff8ec;
   --ui-color-warning-100: #ffeccb;
   --ui-color-warning-200: #ffd894;
-  --ui-color-warning-300: #ffc15e;
-  --ui-color-warning-400: #f5a524;
+  --ui-color-warning-300: #dedede;
+  --ui-color-warning-400: #ffffff;
   --ui-color-warning-500: #e08f0f;
   --ui-color-warning-600: #b86e06;
-  --ui-color-warning-700: #94570a;
-  --ui-color-warning-800: #7a480f;
+  --ui-color-warning-700: #232723;
+  --ui-color-warning-800: #232723;
   --ui-color-warning-900: #663c12;
   --ui-color-warning-950: #3b2007;
 
@@ -212,10 +212,10 @@
   --ui-color-neutral-400: #7e9099;
   --ui-color-neutral-500: #66808d;
   --ui-color-neutral-600: #4e626c;
-  --ui-color-neutral-700: #365667;
-  --ui-color-neutral-800: #26414f;
-  --ui-color-neutral-900: #172c38;
-  --ui-color-neutral-950: #0d1920;
+  --ui-color-neutral-700: #444444;
+  --ui-color-neutral-800: #303030;
+  --ui-color-neutral-900: #181818;
+  --ui-color-neutral-950: #000000;
 }
 
 @theme {
@@ -314,7 +314,7 @@ body {
     border: 1px solid var(--cr-line);
     border-radius: 14px;
     background: var(--cr-surf);
-    box-shadow: 0 24px 60px -24px rgb(0 0 0 / 55%);
+    box-shadow: none;
     overflow: hidden;
     animation: cr-rise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) both;
   }
@@ -334,7 +334,7 @@ body {
 
   /* 危险条纹：达到上限、首次使用等需要拦一下的地方 */
   .cr-hazard {
-    background: repeating-linear-gradient(45deg, var(--cr-acc) 0 10px, transparent 10px 20px);
+    background: var(--cr-line2);
     background-size: 28.3px 28.3px;
     animation: cr-hazard 2s linear infinite;
   }
@@ -544,24 +544,6 @@ body {
 
 .card-grid-overlay {
   display: none;
-  position: absolute;
-  inset: 0;
-  will-change:
-    mask-image,
-    -webkit-mask-image,
-    backdrop-filter;
-  transform: translateZ(0);
-  backdrop-filter: blur(15px);
-  -webkit-backdrop-filter: blur(15px);
-  background-color: rgb(13 25 32 / 25%);
-  pointer-events: none;
-  -webkit-mask-image: radial-gradient(
-    circle var(--r) at var(--x) var(--y),
-    transparent 100%,
-    black 100%
-  );
-  mask-image: radial-gradient(circle var(--r) at var(--x) var(--y), transparent 100%, black 100%);
-  transition: -webkit-mask-image 0.2s ease;
 }
 
 .job-card {

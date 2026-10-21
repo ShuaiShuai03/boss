@@ -142,7 +142,14 @@ export function sanitizeStoredReplyConversations(
     ) {
       continue
     }
-    const messages = candidate.messages.filter(isStoredMessage).slice(-MAX_STORED_MESSAGES)
+    const messages = candidate.messages
+      .filter(
+        (message) =>
+          isStoredMessage(message) &&
+          message.conversationId === conversationId &&
+          message.peer.uid === candidate.peer?.uid,
+      )
+      .slice(-MAX_STORED_MESSAGES)
     if (messages.length === 0) continue
     conversations[conversationId] = {
       id: candidate.id,
@@ -153,4 +160,12 @@ export function sanitizeStoredReplyConversations(
     }
   }
   return Object.fromEntries(Object.entries(conversations).slice(-MAX_STORED_CONVERSATIONS))
+}
+
+// Never restore legacy unscoped sessions: ownership cannot be established.
+export function accountSessionKey(key: string, accountId: string): string {
+  if (typeof accountId !== 'string' || !accountId.trim() || accountId.length > 256) {
+    throw new TypeError('读取聊天记录前需要有效账户')
+  }
+  return `${key}::account::${encodeURIComponent(accountId.trim())}`
 }

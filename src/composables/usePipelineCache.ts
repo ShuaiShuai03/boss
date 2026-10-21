@@ -31,6 +31,9 @@ export class PipelineCacheManager {
   })
 
   private config: Required<PipelineCacheConfig>
+  private ready: Promise<void>
+  private loaded = false
+  private writeTail: Promise<unknown> = Promise.resolve()
 
   constructor(config: PipelineCacheConfig = {}) {
     this.config = {
@@ -41,7 +44,7 @@ export class PipelineCacheManager {
       processorConfigs: config.processorConfigs ?? DEFAULT_PROCESSOR_CONFIGS,
     }
 
-    void this.initCache()
+    this.ready = this.initCache()
   }
 
   /**
@@ -61,6 +64,8 @@ export class PipelineCacheManager {
       await this.evictLRUIfNeeded()
     } catch (error) {
       logger.error('初始化缓存失败', error)
+    } finally {
+      this.loaded = true
     }
   }
 
@@ -81,6 +86,7 @@ export class PipelineCacheManager {
    * 检查缓存是否有效
    */
   isValidCache(encryptJobId: string): boolean {
+    if (!this.loaded) return false
     const item = this.cache.value.data[encryptJobId]
     if (!item) return false
 
@@ -97,6 +103,7 @@ export class PipelineCacheManager {
    * 获取缓存结果
    */
   getCachedResult(encryptJobId: string): PipelineCacheItem | null {
+    if (!this.loaded) return null
     const item = this.cache.value.data[encryptJobId]
     if (!item || Date.now() > item.expireAt) {
       if (item) {
@@ -130,6 +137,7 @@ export class PipelineCacheManager {
     message: string,
     processorType?: ProcessorType,
   ): Promise<void> {
+    await this.ready
     if (status === 'error') {
       // 不缓存错误
       return
@@ -174,7 +182,9 @@ export class PipelineCacheManager {
   private async saveCache(): Promise<void> {
     try {
       const cacheData = jsonClone(this.cache.value)
-      await counter.storageSet(this.config.storageKey, cacheData)
+      const write = this.writeTail.then(() => counter.storageSet(this.config.storageKey, cacheData))
+      this.writeTail = write.catch(() => undefined)
+      await write
     } catch (error) {
       logger.error('保存缓存到存储失败', error)
     }
@@ -239,6 +249,7 @@ export class PipelineCacheManager {
    * 清空所有缓存
    */
   async clearCache(): Promise<void> {
+    await this.ready
     this.cache.value.data = {}
     await this.saveCache()
     toast.add({

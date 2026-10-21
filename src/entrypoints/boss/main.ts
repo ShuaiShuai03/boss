@@ -9,6 +9,7 @@ import { createLazyObject } from '@/composables/useApplying/type'
 import type { JobData } from '@/composables/useHelper'
 import { HelperContext } from '@/composables/useHelper'
 import { Message } from '@/composables/useWebSocket/protobuf'
+import { validateMessageDraft } from '@/features/ai/workspace'
 import type { AiReplySendTarget } from '@/features/aiReply/types'
 import { createBossHelperJobElement, disposeBossHelperJobElement, run } from '@/index'
 import type { BossPageGateway } from '@/message/pageGateway'
@@ -242,7 +243,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   _resolveUser() {
-    return resolveBossUser(this.gateway.user.value)
+    return resolveBossUser(this.gateway?.user.value)
   }
 
   static async new(gateway: BossPageGateway) {
@@ -385,10 +386,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 
   async sendChatMessage(target: AiReplySendTarget, signal?: AbortSignal) {
-    const content = target.text.trim()
-    if (!content) {
-      throw new Error('回复内容为空')
-    }
+    const content = validateMessageDraft(target.text)
     if (!target.toUid) {
       throw new Error('缺少 Boss/HR 用户 ID')
     }
@@ -396,11 +394,26 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       throw new Error('未获取到当前用户 uid')
     }
 
+    const accountId = this.uid
+    const data = this.jobMaps.get(target.jobKey)
+    if (!data) throw new Error('缺少可信岗位上下文，请重新选择岗位')
+    const bossData = await requestBossData(
+      {
+        encryptUserId:
+          data.rawData.detail.jobInfo.encryptUserId || data.rawData.jobitem.encryptBossId,
+        securityId: data.rawData.jobitem.securityId,
+      },
+      { bossSrc: data.rawData.detail.bossInfo.bossSource, signal },
+    )
+    if (!accountId || this.uid !== accountId || String(bossData.data.bossId) !== target.toUid) {
+      throw new Error('账号或消息接收人已变化，已取消发送')
+    }
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
     const message = new Message({
       form_uid: this.protocolUserId,
-      to_uid: target.toUid,
-      to_name: target.toName ?? '',
-      friend_source: target.friendSource,
+      to_uid: String(bossData.data.bossId),
+      to_name: bossData.data.encryptBossId,
+      friend_source: bossData.data.bossSource,
       content,
     })
 
@@ -504,7 +517,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     this.jobList.value = this._jobList.value.map((item) => {
       const job = convertBossZpJobItemToJobData(item)
       if (this.conf.formData.useCache.value) {
-        const cached = checkJobCache(job.key)
+        const cached = checkJobCache(job.key, this.uid)
         if (cached) {
           this.jobResultMaps.set(job.key, {
             status: cached.status,
@@ -519,12 +532,37 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
         : { jobitem: item, detail: createLazyObject<BoosJobData['detail']>('岗位详情获取') }
       this._jobDataMap.set(job.key, rawData)
       const existingWorkflowData = this.jobMaps.get(job.key)
+      // List refreshes carry only summaries. Retain the enriched detail context
+      // used by chat drafts and job preparation after the workflow completes.
+      const enrichedJob = existingWorkflowData?.jobData
+      const jobData = enrichedJob?.jobDescription
+        ? {
+            ...job,
+            jobDescription: enrichedJob.jobDescription,
+            address: enrichedJob.address,
+            addressCoords: enrichedJob.addressCoords,
+            activeTime: enrichedJob.activeTime,
+            activeTimeStr: enrichedJob.activeTimeStr,
+            boss: {
+              ...job.boss,
+              isOnline: enrichedJob.boss.isOnline,
+              isCertificated: enrichedJob.boss.isCertificated,
+              isFriend: enrichedJob.boss.isFriend,
+            },
+            brand: {
+              ...job.brand,
+              labels: enrichedJob.brand.labels,
+              introduce: enrichedJob.brand.introduce,
+              stageName: enrichedJob.brand.stageName,
+            },
+          }
+        : job
       this.jobMaps.set(job.key, {
-        jobData: job,
+        jobData,
         rawData,
         state: existingWorkflowData?.state ?? {},
       })
-      return job
+      return jobData
     })
   }
 }

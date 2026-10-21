@@ -234,7 +234,7 @@ function warnAboutUnsavedConfiguration(event: BeforeUnloadEvent) {
 }
 
 function tagOpen(url: string) {
-  window.open(url)
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 const isDot = computed(() => {
@@ -356,10 +356,10 @@ onBeforeUnmount(() => {
         <div class="cr-panel">
           <header class="cr-head">
             <img class="cr-head-logo" :src="logoUrl" alt="" width="20" height="20" />
-            <span class="cr-head-name">
+            <h1 class="cr-head-name" style="margin: 0">
               {{ !appearanceConf.hideHeader ? 'Boss·Helper' : 'Helper' }}
-            </span>
-            <span class="cr-head-sub">控制室 CONTROL ROOM</span>
+            </h1>
+            <span class="cr-head-sub">求职工作台</span>
             <UChip :show="isDot">
               <UButton color="primary" variant="subtle" size="xs" @click="openStore">
                 v{{ VITE_VERSION }}{{ isDot ? ' 有更新' : '' }}
@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
               data-help="控制室配色，深浅两套主题共用同一份变量。"
               @click="toggleTheme"
             >
-              {{ theme === 'dark' ? '☀ 浅色' : '☾ 深色' }}
+              {{ theme === 'dark' ? '浅色主题' : '深色主题' }}
             </button>
           </header>
 

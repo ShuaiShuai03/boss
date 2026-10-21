@@ -62,7 +62,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   constructor() {
     this.conf = useConf()
     this.models = useModel()
-    this.statistics = createExtensionStatisticsStore()
+    this.statistics = createExtensionStatisticsStore(() => this.uid)
     this.currentJob = ref(null)
     this._logs = ref([])
     const stopLogCap = watch(

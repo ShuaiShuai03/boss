@@ -76,7 +76,51 @@ export class WorkflowRunCoordinator {
     this.operationTimeoutMs = operationTimeoutMs
   }
 
-  async read() {
+  // Build each transition only after the preceding read/write has settled. Otherwise a
+  // heartbeat can persist a stale snapshot over a confirmed submission.
+  private operationTail: Promise<unknown> = Promise.resolve()
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationTail.then(operation)
+    this.operationTail = result.catch(() => undefined)
+    return result
+  }
+
+  read() {
+    return this.enqueue(() => this.readQueued())
+  }
+  acquire(resumePaused = false) {
+    return this.enqueue(() => this.acquireQueued(resumePaused))
+  }
+  heartbeat(transition?: string) {
+    return this.enqueue(() => this.heartbeatQueued(transition))
+  }
+  pause() {
+    return this.enqueue(() => this.pauseQueued())
+  }
+  release(transition: string) {
+    return this.enqueue(() => this.releaseQueued(transition))
+  }
+  resetFilters() {
+    return this.enqueue(() => this.resetFiltersQueued())
+  }
+  countJob(jobKey: string) {
+    return this.enqueue(() => this.countJobQueued(jobKey))
+  }
+  beginSubmission(jobKey: string) {
+    return this.enqueue(() => this.beginSubmissionQueued(jobKey))
+  }
+  confirmSubmission(jobKey: string) {
+    return this.enqueue(() => this.confirmSubmissionQueued(jobKey))
+  }
+  completeJob(jobKey: string, result: TaskResult, delivered: boolean) {
+    return this.enqueue(() => this.completeJobQueued(jobKey, result, delivered))
+  }
+  finish(phase: 'finished' | 'error', error?: string) {
+    return this.enqueue(() => this.finishQueued(phase, error))
+  }
+
+  private async readQueued() {
     this.checkpoint = await withTimeout(
       this.transport.readWorkflowRun(),
       this.operationTimeoutMs,
@@ -85,7 +129,7 @@ export class WorkflowRunCoordinator {
     return this.checkpoint
   }
 
-  async acquire(resumePaused = false) {
+  private async acquireQueued(resumePaused = false) {
     const result = await withTimeout(
       this.transport.claimWorkflowRun(this.claim, this.now(), resumePaused),
       this.operationTimeoutMs,
@@ -107,7 +151,7 @@ export class WorkflowRunCoordinator {
     return result.checkpoint
   }
 
-  async heartbeat(transition?: string) {
+  private async heartbeatQueued(transition?: string) {
     if (!this.checkpoint) throw new WorkflowLeaseLostError()
     return this.persist(
       heartbeatWorkflowRun(this.checkpoint, this.claim.ownerId, this.now(), transition),
@@ -115,7 +159,7 @@ export class WorkflowRunCoordinator {
     )
   }
 
-  async pause() {
+  private async pauseQueued() {
     const checkpoint = await withTimeout(
       this.transport.pauseWorkflowRun(this.claim.accountId, this.now()),
       this.operationTimeoutMs,
@@ -125,7 +169,7 @@ export class WorkflowRunCoordinator {
     return checkpoint
   }
 
-  async release(transition: string) {
+  private async releaseQueued(transition: string) {
     if (!this.checkpoint) return null
     return this.persist(
       releaseWorkflowRun(this.checkpoint, this.claim.ownerId, this.now(), transition),
@@ -133,7 +177,7 @@ export class WorkflowRunCoordinator {
     )
   }
 
-  async resetFilters() {
+  private async resetFiltersQueued() {
     const checkpoint = await withTimeout(
       this.transport.resetWorkflowRunFilters(this.claim.accountId, this.now()),
       this.operationTimeoutMs,
@@ -143,7 +187,7 @@ export class WorkflowRunCoordinator {
     return checkpoint
   }
 
-  async countJob(jobKey: string) {
+  private async countJobQueued(jobKey: string) {
     if (!this.checkpoint) throw new WorkflowLeaseLostError()
     const result = markWorkflowJobCounted(this.checkpoint, this.claim.ownerId, jobKey, this.now())
     if (!result) throw new WorkflowLeaseLostError()
@@ -151,7 +195,7 @@ export class WorkflowRunCoordinator {
     return result.newlyCounted
   }
 
-  async beginSubmission(jobKey: string) {
+  private async beginSubmissionQueued(jobKey: string) {
     if (!this.checkpoint) throw new WorkflowLeaseLostError()
     const needsReconciliation =
       this.checkpoint.submissionIntentJobKeys.includes(jobKey) &&
@@ -163,7 +207,7 @@ export class WorkflowRunCoordinator {
     return { needsReconciliation }
   }
 
-  async confirmSubmission(jobKey: string) {
+  private async confirmSubmissionQueued(jobKey: string) {
     if (!this.checkpoint) throw new WorkflowLeaseLostError()
     const result = confirmWorkflowSubmission(
       this.checkpoint,
@@ -176,7 +220,7 @@ export class WorkflowRunCoordinator {
     return result.newlySubmitted
   }
 
-  async completeJob(jobKey: string, result: TaskResult, delivered: boolean) {
+  private async completeJobQueued(jobKey: string, result: TaskResult, delivered: boolean) {
     if (!this.checkpoint) throw new WorkflowLeaseLostError()
     return this.persist(
       completeWorkflowJob(
@@ -191,7 +235,7 @@ export class WorkflowRunCoordinator {
     )
   }
 
-  async finish(phase: 'finished' | 'error', error?: string) {
+  private async finishQueued(phase: 'finished' | 'error', error?: string) {
     if (!this.checkpoint) return null
     return this.persist(
       finishWorkflowRun(this.checkpoint, this.claim.ownerId, this.now(), phase, error),

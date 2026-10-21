@@ -65,6 +65,10 @@ export class ContentCounter {
   async resetWorkflowRunFilters(...args: Parameters<BackgroundCounter['resetWorkflowRunFilters']>) {
     return this.background.resetWorkflowRunFilters(...args)
   }
+  async reserveAiRequest(...args: Parameters<BackgroundCounter['reserveAiRequest']>) {
+    return this.background.reserveAiRequest(...args)
+  }
+
   async aiRequest(...args: Parameters<BackgroundCounter['aiRequest']>) {
     return this.background.aiRequest(...args)
   }

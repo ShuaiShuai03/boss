@@ -4,18 +4,18 @@
  * 取值与 src/assets/main.css 的 --cr-* 保持一致。不联网拉字体。 */
 
 :root {
-  --cr-bg2: #081217;
-  --cr-surf: #12212b;
-  --cr-surf2: #172c38;
-  --cr-surf3: #1e3949;
-  --cr-line: #26414f;
-  --cr-line2: #365667;
-  --cr-fg: #e8f0f3;
-  --cr-fg2: #9fb6c1;
+  --cr-bg2: #000000;
+  --cr-surf: #111111;
+  --cr-surf2: #181818;
+  --cr-surf3: #2a2a2a;
+  --cr-line: #303030;
+  --cr-line2: #444444;
+  --cr-fg: #ffffff;
+  --cr-fg2: #b4b4b4;
   /* 与 main.css 同步：稿子的 #66808D 在 --surf2 上只有 3.46:1 */
-  --cr-fg3: #8da2ac;
-  --cr-acc: #f5a524;
-  --cr-acc-ink: #12212b;
+  --cr-fg3: #a3a3a3;
+  --cr-acc: #ffffff;
+  --cr-acc-ink: #111111;
   --cr-acc-soft: rgb(245 165 36 / 10%);
   --cr-ok: #4fd98b;
   --cr-err: #ff6b5a;
@@ -27,7 +27,7 @@
   --cr-zh:
     'Noto Sans SC', 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
     'Microsoft YaHei', sans-serif;
-  --cr-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --cr-mono: var(--cr-zh);
 
   color-scheme: dark;
 }
@@ -86,7 +86,7 @@ body {
   left: 0;
   right: 0;
   height: 4px;
-  background: repeating-linear-gradient(45deg, var(--cr-acc) 0 10px, transparent 10px 20px);
+  background: var(--cr-line2);
   background-size: 28.3px 28.3px;
   animation: cr-hazard 2.4s linear infinite;
 }
@@ -411,5 +411,29 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition: none !important;
+  }
+}
+
+.eyebrow,
+.step-num {
+  display: none;
+}
+.hero {
+  border: 0;
+}
+.diag-state {
+  font-size: 12px;
+  letter-spacing: normal;
+}
+.step:hover {
+  transform: none;
+}
+
+@media (min-width: 600px) and (max-width: 860px) {
+  .steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .step {
+    padding: 16px;
   }
 }

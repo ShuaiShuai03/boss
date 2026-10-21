@@ -12,7 +12,9 @@ import {
   type WorkflowRunCheckpoint,
   type WorkflowRunClaim,
 } from '@/composables/useApplying/runState'
+import { emptyWorkspace, reserveRequest, type AiWorkspace } from '@/features/ai/workspace'
 import {
+  accountSessionKey,
   aiReplyConversationStorageKey,
   aiReplyDraftStorageKey,
 } from '@/features/aiReply/draftStorage'
@@ -40,6 +42,7 @@ export interface AiReplySessionState {
   conversations?: unknown
 }
 
+let aiReservationMutation = Promise.resolve()
 let workflowRunMutation = Promise.resolve()
 
 function mutateWorkflowRun<T>(mutation: () => Promise<T>) {
@@ -74,6 +77,38 @@ function normalizeHttpRequestUrl(url: string) {
 }
 
 export class BackgroundCounter {
+  async reserveAiRequest(accountId: string): Promise<AiWorkspace> {
+    // The worker is the single writer across all content-script realms and tabs.
+    const scopedAccount = accountSessionKey('ai', accountId).split('::account::')[1]
+    const workspaceKey = `ai-workspace:${scopedAccount}`
+    const usageKey = `ai-usage:${scopedAccount}`
+    const task = aiReservationMutation
+      .catch(() => undefined)
+      .then(async () => {
+        const stored = await browser.storage.local.get([workspaceKey, usageKey])
+        const workspace = (stored[workspaceKey] ?? emptyWorkspace()) as AiWorkspace
+        if (
+          !Number.isSafeInteger(workspace.dailyRequestLimit) ||
+          workspace.dailyRequestLimit < 1 ||
+          workspace.dailyRequestLimit > 10000
+        ) {
+          throw new Error('AI 每日预算必须是 1 到 10000 之间的整数')
+        }
+        const usage = stored[usageKey] as AiWorkspace['usage'] | undefined
+        workspace.usage = usage ?? workspace.usage ?? { date: '', requests: 0 }
+        if (!Number.isSafeInteger(workspace.usage.requests) || workspace.usage.requests < 0)
+          throw new Error('AI 用量数据无效')
+        reserveRequest(workspace)
+        await browser.storage.local.set({ [usageKey]: workspace.usage })
+        return workspace
+      })
+    aiReservationMutation = task.then(
+      () => undefined,
+      () => undefined,
+    )
+    return task
+  }
+
   async readWorkflowRun() {
     const stored = await browser.storage.local.get(workflowRunRawStorageKey)
     return normalizeWorkflowRunCheckpoint(stored[workflowRunRawStorageKey])
@@ -143,18 +178,19 @@ export class BackgroundCounter {
       return checkpoint
     })
   }
-  async readAiReplySession(): Promise<AiReplySessionState> {
-    const values = await browser.storage.session.get([
-      aiReplyDraftStorageKey,
-      aiReplyConversationStorageKey,
-    ])
+  async readAiReplySession(accountId: string): Promise<AiReplySessionState> {
+    const draftKey = accountSessionKey(aiReplyDraftStorageKey, accountId)
+    const conversationKey = accountSessionKey(aiReplyConversationStorageKey, accountId)
+    const values = await browser.storage.session.get([draftKey, conversationKey])
     return {
-      drafts: values[aiReplyDraftStorageKey],
-      conversations: values[aiReplyConversationStorageKey],
+      drafts: values[draftKey],
+      conversations: values[conversationKey],
     }
   }
 
-  async writeAiReplySession(state: AiReplySessionState) {
+  async writeAiReplySession(state: AiReplySessionState, accountId: string) {
+    const draftKey = accountSessionKey(aiReplyDraftStorageKey, accountId)
+    const conversationKey = accountSessionKey(aiReplyConversationStorageKey, accountId)
     if (!state || typeof state !== 'object' || Array.isArray(state)) {
       throw new TypeError('AI 回复会话状态无效')
     }
@@ -163,9 +199,9 @@ export class BackgroundCounter {
       throw new TypeError('AI 回复会话状态包含未知字段')
     }
     const values: Record<string, unknown> = {}
-    if (state.drafts !== undefined) values[aiReplyDraftStorageKey] = state.drafts
+    if (state.drafts !== undefined) values[draftKey] = state.drafts
     if (state.conversations !== undefined) {
-      values[aiReplyConversationStorageKey] = state.conversations
+      values[conversationKey] = state.conversations
     }
     let serialized: string
     try {
@@ -228,7 +264,7 @@ export class BackgroundCounter {
       throw new Error('AI 请求头超出允许范围')
     }
     if (!Number.isFinite(args.timeoutMs)) throw new TypeError('AI 请求超时无效')
-    const timeoutMs = Math.max(1, Math.min(120_000, args.timeoutMs))
+    const timeoutMs = Math.max(1, Math.min(300_000, args.timeoutMs))
     const response = await fetch(requestUrl, {
       method: args.method,
       headers: args.headers,

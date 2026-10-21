@@ -7,6 +7,7 @@ import { formInfoData, useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
 import type { ModelConf } from '@/composables/useModel'
+import AiWorkspace from '@/features/ai/Workspace.vue'
 
 type CapabilityKey = 'aiGreeting' | 'aiFiltering' | 'aiReply'
 
@@ -203,6 +204,8 @@ function openPrompt(key: CapabilityKey) {
         </footer>
       </article>
     </div>
+
+    <AiWorkspace :account-id="helper.uid" />
 
     <LLMPromptEdit v-if="aiBoxShow" :key="aiBox" v-model="aiBoxShow" :data="aiBox" />
   </div>

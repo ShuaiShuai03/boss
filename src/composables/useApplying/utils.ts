@@ -65,54 +65,55 @@ export function filteringFailureMessage(category: Exclude<FilteringParseCategory
   return `AI 岗位筛选失败：${filteringFailureLabel[category]}`
 }
 
+// Scan each character once; nested objects are part of their outer candidate.
+// Bound both response size and candidate count before invoking repairing parsers.
 function extractBalancedJsonValues(content: string) {
   const values: string[] = []
-
-  for (let start = 0; start < content.length; start++) {
-    const opening = content[start]
-    if (opening !== '{' && opening !== '[') continue
-
-    const stack: string[] = []
-    let inString = false
-    let escaped = false
-
-    for (let index = start; index < content.length; index++) {
-      const char = content[index]
-      if (inString) {
-        if (escaped) {
-          escaped = false
-        } else if (char === '\\') {
-          escaped = true
-        } else if (char === '"') {
-          inString = false
-        }
+  const stack: string[] = []
+  let start = -1
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < content.length; index++) {
+    const char = content[index]
+    if (start < 0) {
+      if (char !== '{' && char !== '[') continue
+      start = index
+      stack.push(char)
+      continue
+    }
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') inString = true
+    else if (char === '{' || char === '[') stack.push(char)
+    else if (char === '}' || char === ']') {
+      if (stack.at(-1) !== (char === '}' ? '{' : '[')) {
+        start = -1
+        stack.length = 0
         continue
       }
-
-      if (char === '"') {
-        inString = true
-      } else if (char === '{' || char === '[') {
-        stack.push(char)
-      } else if (char === '}' || char === ']') {
-        const expected = char === '}' ? '{' : '['
-        if (stack.at(-1) !== expected) break
-        stack.pop()
-        if (stack.length === 0) {
-          values.push(content.slice(start, index + 1))
-          break
-        }
+      stack.pop()
+      if (!stack.length) {
+        values.push(content.slice(start, index + 1))
+        start = -1
       }
     }
   }
-
   return values
 }
 
 function jsonCandidates(content: string) {
   const candidates: string[] = []
+  const seen = new Set<string>()
   const add = (value: string) => {
     const trimmed = value.trim()
-    if (trimmed && !candidates.includes(trimmed)) candidates.push(trimmed)
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed)
+      candidates.push(trimmed)
+    }
   }
 
   for (const match of content.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
@@ -181,12 +182,15 @@ interface FilteringParseOutcome {
 // one candidate fully matches the contract. This rejects "thinking JSON + result JSON" ambiguity
 // and never silently prefers a repaired/truncated candidate over a stricter classification.
 function parseFilteringResponse(content: string): FilteringParseOutcome {
+  if (content.length > 262_144) return { res: null, category: 'non_json', repaired: false }
+  const candidates = jsonCandidates(content)
+  if (candidates.length > 64) return { res: null, category: 'ambiguous', repaired: false }
   const matches: Array<{ value: FilteringResponse; repaired: boolean }> = []
   const seen = new Set<string>()
   let sawObjectOrArray = false
   let worstShapeCategory: 'missing_field' | 'type_mismatch' | null = null
 
-  for (const candidate of jsonCandidates(content)) {
+  for (const candidate of candidates) {
     const parsed = tryParseCandidate(candidate)
     if (!parsed || parsed.value == null || typeof parsed.value !== 'object') continue
     sawObjectOrArray = true

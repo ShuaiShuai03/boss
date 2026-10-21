@@ -1,6 +1,7 @@
 import type { LLMInfo } from './type'
 
 export const DEFAULT_AI_REQUEST_TIMEOUT_MS = 180000
+export const MAX_AI_REQUEST_TIMEOUT_MS = 300000
 export const MIN_AI_REQUEST_TIMEOUT_MS = 60000
 
 export interface other {
@@ -16,7 +17,7 @@ export function getEffectiveAiTimeoutMs(timeout?: number | null) {
     Number.isFinite(timeout) &&
     timeout >= MIN_AI_REQUEST_TIMEOUT_MS
   ) {
-    return timeout
+    return Math.min(timeout, MAX_AI_REQUEST_TIMEOUT_MS)
   }
   return DEFAULT_AI_REQUEST_TIMEOUT_MS
 }
