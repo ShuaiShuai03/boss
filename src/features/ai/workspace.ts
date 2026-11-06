@@ -42,10 +42,21 @@ export function validateProfile(
     targetRoles: clean(targetRoles),
   }
 }
-export function reserveRequest(workspace: AiWorkspace, now = new Date()) {
-  const date = now.toISOString().slice(0, 10)
+// Local calendar day, matching getCurDay() used by statistics (kept inline: this module runs in the worker).
+function localDay(now: Date): string {
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+/** Counts a request; the daily limit applies only once the user has saved a workspace. */
+export function reserveRequest(
+  workspace: AiWorkspace,
+  now = new Date(),
+  enforceLimit = true,
+): void {
+  const date = localDay(now)
   if (workspace.usage.date !== date) workspace.usage = { date, requests: 0 }
-  if (workspace.usage.requests >= workspace.dailyRequestLimit)
+  if (enforceLimit && workspace.usage.requests >= workspace.dailyRequestLimit)
     throw new Error('今日 AI 请求预算已用完')
   workspace.usage.requests++
 }
@@ -72,31 +83,33 @@ export function validateMessageDraft(text: string) {
   return value
 }
 
-const reservationQueues = new Map<string, Promise<unknown>>()
-export async function reserveWorkspaceRequest(
-  key: string,
-  load: () => Promise<AiWorkspace>,
-  save: (workspace: AiWorkspace) => Promise<unknown>,
-) {
-  const previous = reservationQueues.get(key) ?? Promise.resolve()
-  const task = previous
-    .catch(() => undefined)
-    .then(async () => {
-      const workspace = await load()
-      reserveRequest(workspace)
-      await save(workspace)
-      return workspace
-    })
-  reservationQueues.set(key, task)
-  try {
-    return await task
-  } finally {
-    if (reservationQueues.get(key) === task) reservationQueues.delete(key)
+const MAX_ACCOUNT_ID_LENGTH = 256
+/** Storage keys (without the WXT area prefix) shared by the workspace UI and the worker. */
+export function aiWorkspaceStorageKeys(accountId: string): { workspace: string; usage: string } {
+  const account = typeof accountId === 'string' ? accountId.trim() : ''
+  if (!account || account.length > MAX_ACCOUNT_ID_LENGTH) {
+    throw new TypeError('读取 AI 资料前需要有效账户')
   }
+  const segment = encodeURIComponent(account)
+  return { workspace: `ai-workspace:${segment}`, usage: `ai-usage:${segment}` }
 }
 
-/** A reason can be accepted only with a verbatim quote from the supplied job evidence. */
-export function assertGroundedScreening(text: string, source: string) {
+const MAX_EVIDENCE_DEPTH = 6
+const normalizeEvidence = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+/** Flattens the string fields of job data into plain text for verbatim-quote checks. */
+export function jobEvidenceText(value: unknown, depth = 0): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (value == null || typeof value !== 'object' || depth > MAX_EVIDENCE_DEPTH) return ''
+  return Object.values(value)
+    .map((item) => jobEvidenceText(item, depth + 1))
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** Rejects reasons that cite quotes absent from the job evidence; unquoted reasons pass. */
+export function assertGroundedScreening(text: string, source: string): void {
   let value: unknown
   try {
     value = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '').trim())
@@ -107,10 +120,13 @@ export function assertGroundedScreening(text: string, source: string) {
     positive?: Array<{ reason?: string }>
     negative?: Array<{ reason?: string }>
   }
+  const evidence = normalizeEvidence(source)
   for (const item of [...(result.positive ?? []), ...(result.negative ?? [])]) {
     if (typeof item.reason !== 'string') continue
-    const quotes = [...item.reason.matchAll(/[“「"]([^”」"]{2,})[”」"]/g)].map((m) => m[1])
-    if (!quotes.some((quote) => source.includes(quote))) {
+    const quotes = [...item.reason.matchAll(/[“「"]([^”」"]{2,})[”」"]/g)].map((m) =>
+      normalizeEvidence(m[1]),
+    )
+    if (quotes.length > 0 && !quotes.some((quote) => evidence.includes(quote))) {
       throw new Error('AI 筛选理由缺少可核验的岗位原文引用')
     }
   }

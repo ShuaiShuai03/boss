@@ -15,7 +15,11 @@ import {
 } from 'ai'
 import type { ShallowReactive } from 'vue'
 
-import { assertGroundedScreening, evidenceInstruction } from '@/features/ai/workspace'
+import {
+  assertGroundedScreening,
+  evidenceInstruction,
+  jobEvidenceText,
+} from '@/features/ai/workspace'
 import { counter } from '@/message'
 import type { FormDataAi } from '@/types/formData'
 import { renderTemplate } from '@/utils/ai'
@@ -340,7 +344,7 @@ ${data.jobData.jobDescription}`,
       if (agentName === 'filtering') {
         const parsed = parseFiltering(text, { finishReason: result.finishReason })
         if (!parsed.res) throw new Error(parsed.message)
-        assertGroundedScreening(JSON.stringify(parsed.res), JSON.stringify(data.jobData))
+        assertGroundedScreening(JSON.stringify(parsed.res), jobEvidenceText(data.jobData))
       }
       const reasoning = result.reasoningText ?? ''
       msg.parts = [

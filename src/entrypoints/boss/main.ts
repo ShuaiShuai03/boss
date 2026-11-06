@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { appearanceConf } from '@/composables/conf'
 import { checkJobCache } from '@/composables/useApplying'
 import { GreetError } from '@/composables/useApplying/deliverError'
+import { DependencyMissingError } from '@/composables/useApplying/handles'
 import type { WorkflowData } from '@/composables/useApplying/type'
 import { createLazyObject } from '@/composables/useApplying/type'
 import type { JobData } from '@/composables/useHelper'
@@ -196,6 +197,20 @@ async function waitForJobPageChange(changed: () => boolean, timeoutMs = 10000, i
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
   return changed()
+}
+
+// Chat replies can target jobs whose detail was never fetched (the lazy proxy throws until then);
+// the list item still carries the boss id needed to verify the recipient.
+function resolveBossLookup(rawData: BoosJobData): { encryptUserId: string; bossSrc?: number } {
+  try {
+    return {
+      encryptUserId: rawData.detail.jobInfo.encryptUserId || rawData.jobitem.encryptBossId,
+      bossSrc: rawData.detail.bossInfo.bossSource,
+    }
+  } catch (error) {
+    if (!(error instanceof DependencyMissingError)) throw error
+    return { encryptUserId: rawData.jobitem.encryptBossId }
+  }
 }
 
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}> {
@@ -397,13 +412,10 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     const accountId = this.uid
     const data = this.jobMaps.get(target.jobKey)
     if (!data) throw new Error('缺少可信岗位上下文，请重新选择岗位')
+    const lookup = resolveBossLookup(data.rawData)
     const bossData = await requestBossData(
-      {
-        encryptUserId:
-          data.rawData.detail.jobInfo.encryptUserId || data.rawData.jobitem.encryptBossId,
-        securityId: data.rawData.jobitem.securityId,
-      },
-      { bossSrc: data.rawData.detail.bossInfo.bossSource, signal },
+      { encryptUserId: lookup.encryptUserId, securityId: data.rawData.jobitem.securityId },
+      { bossSrc: lookup.bossSrc, signal },
     )
     if (!accountId || this.uid !== accountId || String(bossData.data.bossId) !== target.toUid) {
       throw new Error('账号或消息接收人已变化，已取消发送')

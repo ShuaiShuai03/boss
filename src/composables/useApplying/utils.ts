@@ -65,42 +65,55 @@ export function filteringFailureMessage(category: Exclude<FilteringParseCategory
   return `AI 岗位筛选失败：${filteringFailureLabel[category]}`
 }
 
-// Scan each character once; nested objects are part of their outer candidate.
-// Bound both response size and candidate count before invoking repairing parsers.
-function extractBalancedJsonValues(content: string) {
-  const values: string[] = []
+// A failed candidate (unclosed or mismatched) restarts at the next opener after its start, so
+// a stray brace or quote in prose cannot hide later JSON. Restarts are capped to keep the scan
+// linear-bounded; nested objects inside a balanced value are part of that outer candidate.
+const MAX_JSON_SCAN_RESTARTS = 64
+
+interface BalancedScan {
+  start: number
+  end?: number
+}
+
+function scanBalancedValue(content: string, from: number): BalancedScan | null {
+  let start = from
+  while (start < content.length && content[start] !== '{' && content[start] !== '[') start++
+  if (start >= content.length) return null
   const stack: string[] = []
-  let start = -1
   let inString = false
   let escaped = false
-  for (let index = 0; index < content.length; index++) {
+  for (let index = start; index < content.length; index++) {
     const char = content[index]
-    if (start < 0) {
-      if (char !== '{' && char !== '[') continue
-      start = index
-      stack.push(char)
-      continue
-    }
     if (inString) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
       else if (char === '"') inString = false
+    } else if (char === '"') {
+      inString = true
+    } else if (char === '{' || char === '[') {
+      stack.push(char)
+    } else if (char === '}' || char === ']') {
+      if (stack.pop() !== (char === '}' ? '{' : '[')) return { start }
+      if (!stack.length) return { start, end: index + 1 }
+    }
+  }
+  return { start }
+}
+
+function extractBalancedJsonValues(content: string) {
+  const values: string[] = []
+  let restarts = 0
+  let index = 0
+  while (index < content.length) {
+    const scan = scanBalancedValue(content, index)
+    if (!scan) break
+    if (scan.end !== undefined) {
+      values.push(content.slice(scan.start, scan.end))
+      index = scan.end
       continue
     }
-    if (char === '"') inString = true
-    else if (char === '{' || char === '[') stack.push(char)
-    else if (char === '}' || char === ']') {
-      if (stack.at(-1) !== (char === '}' ? '{' : '[')) {
-        start = -1
-        stack.length = 0
-        continue
-      }
-      stack.pop()
-      if (!stack.length) {
-        values.push(content.slice(start, index + 1))
-        start = -1
-      }
-    }
+    if (++restarts > MAX_JSON_SCAN_RESTARTS) break
+    index = scan.start + 1
   }
   return values
 }

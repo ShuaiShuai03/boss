@@ -12,7 +12,12 @@ import {
   type WorkflowRunCheckpoint,
   type WorkflowRunClaim,
 } from '@/composables/useApplying/runState'
-import { emptyWorkspace, reserveRequest, type AiWorkspace } from '@/features/ai/workspace'
+import {
+  aiWorkspaceStorageKeys,
+  emptyWorkspace,
+  reserveRequest,
+  type AiWorkspace,
+} from '@/features/ai/workspace'
 import {
   accountSessionKey,
   aiReplyConversationStorageKey,
@@ -79,9 +84,7 @@ function normalizeHttpRequestUrl(url: string) {
 export class BackgroundCounter {
   async reserveAiRequest(accountId: string): Promise<AiWorkspace> {
     // The worker is the single writer across all content-script realms and tabs.
-    const scopedAccount = accountSessionKey('ai', accountId).split('::account::')[1]
-    const workspaceKey = `ai-workspace:${scopedAccount}`
-    const usageKey = `ai-usage:${scopedAccount}`
+    const { workspace: workspaceKey, usage: usageKey } = aiWorkspaceStorageKeys(accountId)
     const task = aiReservationMutation
       .catch(() => undefined)
       .then(async () => {
@@ -98,7 +101,8 @@ export class BackgroundCounter {
         workspace.usage = usage ?? workspace.usage ?? { date: '', requests: 0 }
         if (!Number.isSafeInteger(workspace.usage.requests) || workspace.usage.requests < 0)
           throw new Error('AI 用量数据无效')
-        reserveRequest(workspace)
+        // Users who never saved a workspace keep the pre-budget behavior: usage is counted, not capped.
+        reserveRequest(workspace, new Date(), stored[workspaceKey] !== undefined)
         await browser.storage.local.set({ [usageKey]: workspace.usage })
         return workspace
       })
