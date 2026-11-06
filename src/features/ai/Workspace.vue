@@ -3,7 +3,13 @@ import { ref, watch } from 'vue'
 
 import { counter } from '@/message'
 
-import { emptyWorkspace, validateProfile, prepareJob, type AiWorkspace } from './workspace'
+import {
+  aiWorkspaceStorageKeys,
+  emptyWorkspace,
+  validateProfile,
+  prepareJob,
+  type AiWorkspace,
+} from './workspace'
 const props = defineProps<{ accountId: string }>()
 const workspace = ref<AiWorkspace>(emptyWorkspace())
 const facts = ref('')
@@ -15,16 +21,28 @@ const conversationKey = ref('')
 const conversationText = ref('')
 const conversationSource = ref('')
 let accountEpoch = 0
+// Saving builds a new profile version from the form, so it is allowed only after the
+// current account's stored profile has been loaded into the form.
+const loadedAccount = ref('')
+function storageKeys(accountId: string) {
+  const keys = aiWorkspaceStorageKeys(accountId)
+  return { workspace: `local:${keys.workspace}`, usage: `local:${keys.usage}` }
+}
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 watch(
   () => props.accountId,
   () => {
     accountEpoch++
+    loadedAccount.value = ''
     workspace.value = emptyWorkspace()
     facts.value = roles.value = description.value = preparation.value = ''
     conversationKey.value = conversationText.value = conversationSource.value = ''
     status.value = ''
+    if (props.accountId) void load()
   },
-  { flush: 'sync' },
+  { flush: 'sync', immediate: true },
 )
 async function load() {
   const epoch = accountEpoch
@@ -33,28 +51,30 @@ async function load() {
     status.value = '请先登录并识别账号'
     return
   }
-  const loaded = await counter.storageGet<AiWorkspace>(
-    `local:ai-workspace:${encodeURIComponent(account)}`,
-    emptyWorkspace(),
-  )
-  loaded.usage = await counter.storageGet(
-    `local:ai-usage:${encodeURIComponent(account)}`,
-    loaded.usage,
-  )
-  if (epoch !== accountEpoch) return
-  workspace.value = loaded
-  const current = workspace.value.profiles.at(-1)
-  facts.value = current?.facts.join('\n') ?? ''
-  roles.value = current?.targetRoles.join('\n') ?? ''
-  status.value = `已加载版本 ${current?.version ?? 0}`
+  try {
+    const keys = storageKeys(account)
+    const loaded = await counter.storageGet<AiWorkspace>(keys.workspace, emptyWorkspace())
+    loaded.usage = await counter.storageGet(keys.usage, loaded.usage)
+    if (epoch !== accountEpoch) return
+    workspace.value = loaded
+    loadedAccount.value = account
+    const current = workspace.value.profiles.at(-1)
+    facts.value = current?.facts.join('\n') ?? ''
+    roles.value = current?.targetRoles.join('\n') ?? ''
+    status.value = `已加载版本 ${current?.version ?? 0}`
+  } catch (error) {
+    if (epoch !== accountEpoch) return
+    status.value = `加载失败：${errorMessage(error)}`
+  }
 }
 async function save() {
   const epoch = accountEpoch
   const account = props.accountId
   try {
     if (!props.accountId) throw new Error('请先登录并识别账号')
-    const key = `local:ai-workspace:${encodeURIComponent(account)}`
-    const current = await counter.storageGet<AiWorkspace>(key, emptyWorkspace())
+    if (loadedAccount.value !== account) throw new Error('请先加载当前账号资料，再保存新版本')
+    const keys = storageKeys(account)
+    const current = await counter.storageGet<AiWorkspace>(keys.workspace, emptyWorkspace())
     if (epoch !== accountEpoch) return
     const profile = validateProfile(
       facts.value.split('\n'),
@@ -66,18 +86,15 @@ async function save() {
       1,
       Math.min(1000, Math.floor(workspace.value.dailyRequestLimit || 50)),
     )
-    current.usage = await counter.storageGet(
-      `local:ai-usage:${encodeURIComponent(account)}`,
-      current.usage,
-    )
+    current.usage = await counter.storageGet(keys.usage, current.usage)
     if (epoch !== accountEpoch) return
-    await counter.storageSet(key, current)
+    await counter.storageSet(keys.workspace, current)
     if (epoch !== accountEpoch) return
     workspace.value = current
     status.value = `已保存版本 ${profile.version}`
   } catch (error) {
     if (epoch !== accountEpoch) return
-    status.value = error instanceof Error ? error.message : String(error)
+    status.value = errorMessage(error)
   }
 }
 async function saveFact() {
@@ -91,27 +108,32 @@ async function saveFact() {
     status.value = '请填写岗位 key、已确认事实和来源'
     return
   }
-  const key = `local:ai-workspace:${encodeURIComponent(props.accountId)}`
-  const current = await counter.storageGet<AiWorkspace>(key, emptyWorkspace())
-  if (epoch !== accountEpoch) return
-  const job = conversationKey.value.trim()
-  current.conversationFacts[job] = [
-    ...(current.conversationFacts[job] ?? []),
-    {
-      text: conversationText.value.trim().slice(0, 2000),
-      source: conversationSource.value.trim().slice(0, 500),
-    },
-  ].slice(-50)
-  await counter.storageSet(key, current)
-  if (epoch !== accountEpoch) return
-  workspace.value = current
-  status.value = '会话事实已保存；只用于该岗位的后续请求'
+  try {
+    const key = storageKeys(props.accountId).workspace
+    const current = await counter.storageGet<AiWorkspace>(key, emptyWorkspace())
+    if (epoch !== accountEpoch) return
+    const job = conversationKey.value.trim()
+    current.conversationFacts[job] = [
+      ...(current.conversationFacts[job] ?? []),
+      {
+        text: conversationText.value.trim().slice(0, 2000),
+        source: conversationSource.value.trim().slice(0, 500),
+      },
+    ].slice(-50)
+    await counter.storageSet(key, current)
+    if (epoch !== accountEpoch) return
+    workspace.value = current
+    status.value = '会话事实已保存；只用于该岗位的后续请求'
+  } catch (error) {
+    if (epoch !== accountEpoch) return
+    status.value = `保存失败：${errorMessage(error)}`
+  }
 }
 function prepare() {
   try {
     preparation.value = prepareJob(description.value, workspace.value.profiles.at(-1)).prompt
   } catch (error) {
-    status.value = error instanceof Error ? error.message : String(error)
+    status.value = errorMessage(error)
   }
 }
 </script>

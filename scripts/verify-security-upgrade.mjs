@@ -79,7 +79,8 @@ assert.equal(
 // Exercise the actual background reservation method with two separate proxy clients.
 const { readFileSync } = await import('node:fs')
 const { stripTypeScriptTypes } = await import('node:module')
-const { emptyWorkspace, reserveRequest } = await import('../src/features/ai/workspace.ts')
+const { aiWorkspaceStorageKeys, emptyWorkspace, reserveRequest } =
+  await import('../src/features/ai/workspace.ts')
 const backgroundSource = readFileSync(
   new URL('../src/message/background.ts', import.meta.url),
   'utf8',
@@ -110,9 +111,9 @@ const Counter = new Function(
   'browser',
   'emptyWorkspace',
   'reserveRequest',
-  'accountSessionKey',
+  'aiWorkspaceStorageKeys',
   `${source}; return createCounter()`,
-)(browser, emptyWorkspace, reserveRequest, accountSessionKey)
+)(browser, emptyWorkspace, reserveRequest, aiWorkspaceStorageKeys)
 const outcomes = await Promise.allSettled([
   new Counter().reserveAiRequest('a'),
   new Counter().reserveAiRequest('a'),

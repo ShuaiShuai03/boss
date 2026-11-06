@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs'
 import {
   assertGroundedScreening,
   emptyWorkspace,
+  jobEvidenceText,
   validateProfile,
   reserveRequest,
-  reserveWorkspaceRequest,
+  aiWorkspaceStorageKeys,
   evidenceInstruction,
   prepareJob,
   validateMessageDraft,
@@ -23,21 +24,18 @@ state.dailyRequestLimit = 1
 reserveRequest(state, new Date('2026-01-01'))
 assert.throws(() => reserveRequest(state, new Date('2026-01-01')))
 reserveRequest(state, new Date('2026-01-02'))
-let stored = emptyWorkspace()
-stored.dailyRequestLimit = 1
-const results = await Promise.allSettled(
-  Array.from({ length: 4 }, () =>
-    reserveWorkspaceRequest(
-      'one',
-      async () => structuredClone(stored),
-      async (v) => {
-        stored = structuredClone(v)
-      },
-    ),
-  ),
-)
-assert.equal(results.filter((v) => v.status === 'fulfilled').length, 1)
-assert.equal(stored.usage.requests, 1)
+// Without a saved workspace the limit is not enforced; usage is still counted.
+const unconfigured = emptyWorkspace()
+unconfigured.dailyRequestLimit = 1
+reserveRequest(unconfigured, new Date(2026, 0, 3, 1), false)
+reserveRequest(unconfigured, new Date(2026, 0, 3, 2), false)
+assert.equal(unconfigured.usage.requests, 2)
+// Usage days follow the local calendar, not UTC.
+assert.equal(unconfigured.usage.date, '2026-01-03')
+// UI and worker share one key format; surrounding whitespace in the account id is ignored.
+assert.deepEqual(aiWorkspaceStorageKeys(' a b '), aiWorkspaceStorageKeys('a b'))
+assert.equal(aiWorkspaceStorageKeys('a b').workspace, 'ai-workspace:a%20b')
+assert.throws(() => aiWorkspaceStorageKeys(' '))
 const runtime = readFileSync('src/composables/useModel/test.ts', 'utf8')
 assert.match(runtime, /fork\(\)\s*\{\s*return new ChatModel\(this.ctx, true\)/)
 assert.match(runtime, /this.ctx.uid !== account/)
@@ -58,10 +56,19 @@ assert.throws(() =>
     '需要Vue开发',
   ),
 )
-assert.throws(() =>
+// Unquoted reasons are allowed; only quotes absent from the job evidence are rejected.
+assert.doesNotThrow(() =>
   assertGroundedScreening(
     JSON.stringify({ positive: [{ reason: '凭空判定' }], negative: [] }),
     '需要Vue开发',
+  ),
+)
+// Quotes spanning line breaks or containing double quotes match the flattened job text.
+const evidence = jobEvidenceText({ jobDescription: '负责前端\n架构设计', boss: { name: 'A' } })
+assert.doesNotThrow(() =>
+  assertGroundedScreening(
+    JSON.stringify({ positive: [{ reason: '符合「负责前端 架构设计」' }], negative: [] }),
+    evidence,
   ),
 )
 
@@ -72,7 +79,17 @@ const wrapped = parseFiltering(
   'result: {"positive":[{"reason":"fabricated","score":2}],"negative":[]}',
 )
 assert.ok(wrapped.res)
-assert.throws(() => assertGroundedScreening(JSON.stringify(wrapped.res), '需要Vue开发'))
+assert.doesNotThrow(() => assertGroundedScreening(JSON.stringify(wrapped.res), '需要Vue开发'))
+// A stray unclosed brace in prose must not hide the JSON that follows it.
+const strayBrace = parseFiltering(
+  '思考{ 结论如下 {"positive":[{"reason":"ok","score":2}],"negative":[]}',
+)
+assert.ok(strayBrace.res)
+assert.equal(strayBrace.res.positive[0].reason, 'ok')
+const strayQuote = parseFiltering(
+  '他说"好 [ {"positive":[{"reason":"ok","score":2}],"negative":[]}',
+)
+assert.ok(strayQuote.res)
 const repaired = parseFiltering('{"positive":[{"reason":"fabricated","score":2}],"negative":[')
 assert.equal(repaired.res, null)
 const workspaceUi = readFileSync('src/features/ai/Workspace.vue', 'utf8')
